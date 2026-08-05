@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { GAME_CONFIG, HEROES, PEDESTAL_POSITIONS } from '../config/gameConfig';
+import { combatDistance, getAbilityTargets } from '../game/combat';
 import { getHeroStats } from '../game/stats';
 import type { EnemyState, EnemyType, HeroId, HeroState, ShotFx } from '../types/game';
 import { AtlasSprite } from './AtlasSprite';
 
 let entityId = 1;
-const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 type HitFxState = { id: number; enemyId: number; x: number; y: number; amount: number; kind: string; kill: boolean; createdAt: number };
 
 export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComplete }: {
@@ -32,21 +32,28 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
 
   useEffect(() => {
     const waveConfig = GAME_CONFIG.waves[wave - 1];
-    queueRef.current = [
-      ...Array(waveConfig.minion).fill('minion'),
-      ...Array(waveConfig.elite).fill('elite'),
-      ...Array(waveConfig.boss).fill('boss'),
-    ] as EnemyType[];
-    completed.current = false; setEnemies([]); setShots([]); setHitFxs([]); cooldowns.current = {};
+    const minions = Array<EnemyType>(waveConfig.minion).fill('minion');
+    const elites = Array<EnemyType>(waveConfig.elite).fill('elite');
+    const bosses = Array<EnemyType>(waveConfig.boss).fill('boss');
+    queueRef.current = waveConfig.bossFirst ? [...bosses, ...minions, ...elites] : [...minions, ...elites, ...bosses];
+    completed.current = false;
+    enemiesRef.current = [];
+    setEnemies([]); setShots([]); setHitFxs([]); cooldowns.current = {};
 
     const spawnTimer = window.setInterval(() => {
       const type = queueRef.current.shift();
       if (!type) { window.clearInterval(spawnTimer); return; }
       const config = GAME_CONFIG.enemies[type];
-      setEnemies((current) => [...current, {
+      const hp = config.hp * (waveConfig.hpMultiplier?.[type] ?? 1);
+      const damage = config.damage * (waveConfig.damageMultiplier?.[type] ?? 1);
+      const speed = config.speed * (waveConfig.speedMultiplier?.[type] ?? 1);
+      const spawned: EnemyState = {
         id: entityId++, type, x: 42 + Math.random() * 16, y: 96 + Math.random() * 5,
-        hp: config.hp, maxHp: config.hp, speed: config.speed, damage: config.damage, alive: true,
-      }]);
+        hp, maxHp: hp, speed, damage, alive: true,
+      };
+      const next = [...enemiesRef.current, spawned];
+      enemiesRef.current = next;
+      setEnemies(next);
     }, GAME_CONFIG.combat.spawnIntervalMs);
 
     let last = performance.now();
@@ -61,8 +68,22 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
       const baseHits: number[] = [];
       next.forEach((enemy) => {
         if (!enemy.alive) return;
-        enemy.y -= enemy.speed * dt / 1000;
-        if (enemy.y <= GAME_CONFIG.combat.baseY) { enemy.alive = false; baseHits.push(enemy.damage); }
+        if (!enemy.isSieging) enemy.y -= enemy.speed * dt / 1000;
+        if (enemy.y <= GAME_CONFIG.combat.baseY) {
+          if (enemy.type === 'boss') {
+            enemy.y = GAME_CONFIG.combat.baseY;
+            if (!enemy.isSieging) {
+              enemy.isSieging = true;
+              enemy.nextBaseAttackAt = now + GAME_CONFIG.combat.bossSiege.firstAttackDelayMs;
+            } else if (now >= (enemy.nextBaseAttackAt ?? now)) {
+              baseHits.push(GAME_CONFIG.combat.bossSiege.damage);
+              enemy.nextBaseAttackAt = now + GAME_CONFIG.combat.bossSiege.attackIntervalMs;
+            }
+          } else {
+            enemy.alive = false;
+            baseHits.push(enemy.damage);
+          }
+        }
       });
       baseHits.forEach(onBaseDamage);
 
@@ -77,20 +98,16 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
         if (hero.id === draggingRef.current) return;
         const stats = getHeroStats(hero); const from = PEDESTAL_POSITIONS[hero.slot];
         if ((cooldowns.current[hero.id] ?? 0) > now) return;
-        const targets = live().filter((enemy) => dist(from, enemy) <= stats.range).sort((a, b) => a.y - b.y);
+        const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => a.y - b.y);
         const target = targets[0]; if (!target) return;
         cooldowns.current[hero.id] = now + stats.attackIntervalMs;
         const ability = HEROES[hero.id].ability; addShot(hero.id, ability, from, target);
-        if (ability === 'missile') targets.slice(0, Math.max(1, stats.pierce)).forEach((enemy) => damage(enemy, stats.damage, ability));
-        if (ability === 'fireball') live().filter((enemy) => dist(enemy, target) <= stats.aoeRadius).forEach((enemy) => damage(enemy, stats.damage, ability));
-        if (ability === 'icicle') targets.filter((enemy) => Math.abs(enemy.x - target.x) <= 6).slice(0, stats.pierce).forEach((enemy) => damage(enemy, stats.damage, ability));
-        if (ability === 'sector') targets.filter((enemy) => Math.abs(enemy.x - from.x) <= stats.aoeRadius).forEach((enemy) => damage(enemy, stats.damage, ability));
-        if (ability === 'beam') targets.filter((enemy) => Math.abs(enemy.x - target.x) <= stats.beamWidth).forEach((enemy) => damage(enemy, stats.damage, ability));
+        getAbilityTargets(ability, stats, from, target, targets, live()).forEach((enemy) => damage(enemy, stats.damage, ability));
       });
 
       if ((cooldowns.current.king ?? 0) <= now) {
         const from = { x: 50, y: 13 };
-        const target = live().filter((enemy) => dist(from, enemy) <= GAME_CONFIG.base.range).sort((a, b) => a.y - b.y)[0];
+        const target = live().filter((enemy) => combatDistance(from, enemy) <= GAME_CONFIG.base.range).sort((a, b) => a.y - b.y)[0];
         if (target) { damage(target, GAME_CONFIG.base.damage, 'royal'); cooldowns.current.king = now + GAME_CONFIG.base.attackIntervalMs; addShot('king', 'royal', from, target); }
       }
 
@@ -127,7 +144,7 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
       <div className="wave-intro"><span>WAVE {wave}</span><b>DEFEND THE THRONE</b></div>
       {enemies.map((enemy) => {
         const config = GAME_CONFIG.enemies[enemy.type];
-        return <div className={`enemy enemy-${enemy.type} ${(enemy.lastHit && performance.now() - enemy.lastHit < 220) ? 'is-hit' : ''}`} key={enemy.id} style={{ left: `${enemy.x}%`, top: `${enemy.y}%`, width: `${config.size}%` }}>
+        return <div className={`enemy enemy-${enemy.type} ${enemy.isSieging ? 'is-sieging' : ''} ${(enemy.lastHit && performance.now() - enemy.lastHit < 220) ? 'is-hit' : ''}`} key={enemy.id} style={{ left: `${enemy.x}%`, top: `${enemy.y}%`, width: `${config.size}%` }}>
           <AtlasSprite atlas="enemy" index={config.atlasIndex - 1} />
           <span className="enemy-hp"><i style={{ width: `${enemy.hp / enemy.maxHp * 100}%` }} /></span>
         </div>;

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { GAME_CONFIG, PEDESTAL_POSITIONS } from '../config/gameConfig';
 import type { GameController } from '../hooks/useGame';
-import type { HeroId } from '../types/game';
+import type { ComboFeedback, HeroId } from '../types/game';
 import { AtlasSprite } from './AtlasSprite';
 import { CombatLayer } from './CombatLayer';
 import { HeroPedestal } from './HeroPedestal';
@@ -14,7 +14,7 @@ export function Arena({ game }: { game: GameController }) {
   const fighting = game.phase === 'combat';
 
   return (
-    <main className={`game-screen phase-${game.phase} ${game.winningLines.length ? 'slot-celebrating' : ''} ${dragState ? 'is-dragging' : ''}`}>
+    <main className={`game-screen phase-${game.phase} ${game.winningLines.length ? 'slot-celebrating' : ''} ${game.comboFeedback ? `combo-celebrating combo-x${game.comboFeedback.multiplier}` : ''} ${dragState ? 'is-dragging' : ''}`}>
       <img className="arena-bg" src="/assets/arena.png" alt="" />
       <Hud wave={game.wave} hp={game.baseHp} />
       <div className={`king-on-throne ${game.baseHp < GAME_CONFIG.base.maxHp ? 'base-damaged' : ''}`} key={game.baseHp}><AtlasSprite atlas="king" index={0} /></div>
@@ -50,10 +50,12 @@ export function Arena({ game }: { game: GameController }) {
             nudgesLeft={game.nudgesLeft}
             spinning={game.spinning}
             nudgingReel={game.nudgingReel}
+            nudgingDirection={game.nudgingDirection}
             pendingGrid={game.pendingGrid}
             winningCells={game.winningCells}
             winningLines={game.winningLines}
             noMatch={game.noMatch}
+            comboMultiplier={game.comboFeedback?.multiplier ?? 1}
             onSpin={game.spin}
             onNudge={game.nudge}
           />
@@ -64,10 +66,34 @@ export function Arena({ game }: { game: GameController }) {
       )}
 
       {game.rewardFlights.map((flight) => <RewardStar key={flight.id} {...flight} />)}
+      {game.comboFeedback && <ComboCelebration key={game.comboFeedback.id} combo={game.comboFeedback} />}
 
       {game.phase === 'waveClear' && <WaveClear wave={game.wave} />}
       <div className="safe-vignette" />
     </main>
+  );
+}
+
+function ComboCelebration({ combo }: { combo: ComboFeedback }) {
+  const mega = combo.multiplier === 4;
+  return (
+    <div className={`combo-celebration combo-x${combo.multiplier}`} role="status" aria-live="assertive">
+      <div className="combo-screen-flash" />
+      <div className="combo-rays" />
+      <div className="combo-shockwave"><i /><i /><i /></div>
+      <div className="combo-firework firework-left">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--spark-angle': `${index * 30}deg`, '--spark-delay': `${.08 + index * .012}s` } as React.CSSProperties} />)}</div>
+      <div className="combo-firework firework-right">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--spark-angle': `${index * 30}deg`, '--spark-delay': `${.2 + index * .012}s` } as React.CSSProperties} />)}</div>
+      <div className="combo-confetti">{Array.from({ length: 26 }, (_, index) => {
+        const column = index % 13;
+        return <i key={index} style={{ '--piece-x': `${(column + .5) * 7.69}%`, '--piece-drift': `${(column - 6) * 2}vw`, '--piece-duration': `${1.05 + index * .025}s`, '--piece-delay': `${index * .018}s` } as React.CSSProperties} />;
+      })}</div>
+      <div className="combo-banner">
+        <small>{mega ? 'MEGA JACKPOT' : 'DOUBLE JACKPOT'}</small>
+        <strong><span>COMBO</span><b>x{combo.multiplier}</b></strong>
+        <em>{combo.lineCount} WINNING LINES!</em>
+        <p>ALL XP x{combo.multiplier} <b>+{combo.totalXp} XP</b></p>
+      </div>
+    </div>
   );
 }
 

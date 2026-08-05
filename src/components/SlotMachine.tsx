@@ -1,20 +1,31 @@
-import { HEROES } from '../config/gameConfig';
-import type { SlotCell } from '../types/game';
+import { useRef } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { GAME_CONFIG, HEROES } from '../config/gameConfig';
+import type { NudgeDirection, SlotCell } from '../types/game';
 import { AtlasSprite } from './AtlasSprite';
 
-export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel, pendingGrid, winningCells, winningLines, noMatch, onSpin, onNudge }: {
+const getXpBackground = (xp: number) => (
+  GAME_CONFIG.slot.xpBackgroundTiers.find((tier) => xp >= tier.minXp)?.color
+    ?? GAME_CONFIG.slot.xpBackgroundTiers.at(-1)?.color
+    ?? '#fff'
+);
+
+export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel, nudgingDirection, pendingGrid, winningCells, winningLines, noMatch, comboMultiplier = 1, onSpin, onNudge }: {
   grid: SlotCell[];
   spinsLeft: number;
   nudgesLeft: number;
   spinning: boolean;
   nudgingReel: number | null;
+  nudgingDirection: NudgeDirection | null;
   pendingGrid: SlotCell[] | null;
   winningCells: number[];
   winningLines: number[][];
   noMatch: boolean;
+  comboMultiplier?: 1 | 2 | 4;
   onSpin: () => void;
-  onNudge: (reel: number) => void;
+  onNudge: (reel: number, direction: NudgeDirection) => void;
 }) {
+  const swipe = useRef<{ pointerId: number; reel: number; startX: number; startY: number; reelHeight: number } | null>(null);
   const cellsForReel = (reel: number) => [grid[reel], grid[reel + 3], grid[reel + 6]];
   const spinningCellsForReel = (reel: number) => {
     const visible = cellsForReel(reel);
@@ -22,22 +33,65 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
     const filler = [1, 2].flatMap((offset) => cellsForReel((reel + offset) % 3));
     return [...result, ...filler, ...visible];
   };
-  const nudgeCellsForReel = (reel: number) => [pendingGrid?.[reel] ?? grid[reel], ...cellsForReel(reel)];
+  const nudgeCellsForReel = (reel: number) => nudgingDirection === 'up'
+    ? [...cellsForReel(reel), pendingGrid?.[reel + 6] ?? grid[reel + 6]]
+    : [pendingGrid?.[reel] ?? grid[reel], ...cellsForReel(reel)];
   const fullSpin = spinning && nudgingReel === null;
+  const canNudge = nudgesLeft > 0 && !spinning;
+
+  const beginSwipe = (reel: number, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!canNudge || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    swipe.current = {
+      pointerId: event.pointerId,
+      reel,
+      startX: event.clientX,
+      startY: event.clientY,
+      reelHeight: event.currentTarget.clientHeight,
+    };
+  };
+
+  const trackSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (swipe.current?.pointerId === event.pointerId) event.preventDefault();
+  };
+
+  const finishSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = swipe.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    swipe.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const threshold = Math.max(14, gesture.reelHeight * 0.14);
+    if (Math.abs(deltaY) < threshold || Math.abs(deltaY) <= Math.abs(deltaX)) return;
+    const direction: NudgeDirection = deltaY > 0 ? 'down' : 'up';
+    if (direction === 'up' && !GAME_CONFIG.slot.enableUpwardNudge) return;
+    onNudge(gesture.reel, direction);
+  };
 
   return (
-    <section className={`slot-machine ${fullSpin ? 'is-spinning' : ''} ${nudgingReel !== null ? 'is-nudging' : ''} ${noMatch ? 'is-no-match' : ''}`} aria-label="Hero slot machine">
+    <section className={`slot-machine ${fullSpin ? 'is-spinning' : ''} ${nudgingReel !== null ? `is-nudging nudge-${nudgingDirection ?? 'down'}` : ''} ${noMatch ? 'is-no-match' : ''} ${comboMultiplier > 1 ? `has-combo combo-x${comboMultiplier}` : ''}`} aria-label="Hero slot machine">
       <img className="slot-shell" src="/assets/slot-machine.png" alt="" />
       <div className="reel-grid">
         {[0, 1, 2].map((reel) => (
-          <div className={`reel ${nudgingReel === reel ? 'nudge-target' : ''}`} key={reel}>
-            <div className="reel-strip" style={{ '--reel': reel } as React.CSSProperties}>
+          <div
+            className={`reel ${canNudge ? 'is-swipeable' : ''} ${nudgingReel === reel ? 'nudge-target' : ''}`}
+            key={reel}
+            onPointerDown={(event) => beginSwipe(reel, event)}
+            onPointerMove={trackSwipe}
+            onPointerUp={finishSwipe}
+            onPointerCancel={() => { swipe.current = null; }}
+          >
+            <div className="reel-strip" style={{ '--reel': reel } as CSSProperties}>
               {(fullSpin ? spinningCellsForReel(reel) : nudgingReel === reel ? nudgeCellsForReel(reel) : cellsForReel(reel)).map((cell, row) => {
                 const gridIndex = reel + (row % 3) * 3;
                 return (
                   <div
                     className={`slot-symbol ${!spinning && winningCells.includes(gridIndex) ? 'is-winning' : ''}`}
-                    style={{ '--hero-color': HEROES[cell.heroId].color } as React.CSSProperties}
+                    style={{
+                      '--hero-color': HEROES[cell.heroId].color,
+                      '--slot-background': getXpBackground(cell.xp),
+                    } as CSSProperties}
                     key={`${reel}-${row}-${cell.heroId}`}
                   >
                     <span className="symbol-medallion"><AtlasSprite atlas="heroPortrait" index={HEROES[cell.heroId].atlasIndex} /></span>
@@ -64,13 +118,14 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
         </svg>
       )}
       {winningLines.length > 0 && <div className="slot-win-flash" />}
+      {comboMultiplier > 1 && <div className="combo-slot-aura"><i /><i /><i /></div>}
       {noMatch && <div className="no-match-feedback"><i /><span>NO MATCH</span><small>TRY THE NEXT SPIN</small></div>}
       {[0, 1, 2].map((reel) => (
         <button
           key={reel}
           className={`nudge-button ${nudgingReel === reel ? 'is-nudging' : ''}`}
           style={{ left: `${19.5 + reel * 17.8}%` }}
-          onClick={() => onNudge(reel)}
+          onClick={() => onNudge(reel, 'down')}
           disabled={nudgesLeft === 0 || spinning}
           aria-label={`Nudge reel ${reel + 1} down`}
         ><span className="nudge-chevron" /><small>NUDGE</small></button>

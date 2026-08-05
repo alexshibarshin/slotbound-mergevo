@@ -1,5 +1,5 @@
 import { GAME_CONFIG, HERO_ORDER } from '../config/gameConfig';
-import type { HeroId, SlotCell, SlotUpgrade } from '../types/game';
+import type { HeroId, NudgeDirection, SlotCell, SlotUpgrade } from '../types/game';
 
 export const WINNING_LINES = [
   [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -22,12 +22,19 @@ export function createGrid(xpByReel: number[][], guaranteeWin = false): SlotCell
   }));
 }
 
-export function nudgeReel(grid: SlotCell[], reel: number, xpByReel: number[][]): SlotCell[] {
+export function nudgeReel(grid: SlotCell[], reel: number, xpByReel: number[][], direction: NudgeDirection = 'down'): SlotCell[] {
   const next = [...grid];
-  next[reel + 6] = next[reel + 3];
-  next[reel + 3] = next[reel];
   const heroId = randomHero();
-  next[reel] = { heroId, xp: xpByReel[reel][HERO_ORDER.indexOf(heroId)] };
+  const incoming = { heroId, xp: xpByReel[reel][HERO_ORDER.indexOf(heroId)] };
+  if (direction === 'up') {
+    next[reel] = next[reel + 3];
+    next[reel + 3] = next[reel + 6];
+    next[reel + 6] = incoming;
+  } else {
+    next[reel + 6] = next[reel + 3];
+    next[reel + 3] = next[reel];
+    next[reel] = incoming;
+  }
   return next;
 }
 

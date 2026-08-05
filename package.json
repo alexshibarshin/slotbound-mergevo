@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "preview": "vite --host 0.0.0.0"
+    "preview": "vite --host 0.0.0.0",
+    "balance:sim": "node --experimental-strip-types scripts/balance-sim.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

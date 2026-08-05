@@ -68,8 +68,10 @@ button:disabled { cursor: default; }
 .slot-shell { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .reel-grid { position: absolute; left: 19.2%; top: 20.5%; width: 52.9%; height: 52.5%; display: flex; gap: .7%; overflow: hidden; border-radius: 5%; background: #dceaf3; }
 .reel { flex: 1 1 0; min-width: 0; overflow: hidden; border-inline: 1px solid rgba(34,75,124,.22); }
+.reel.is-swipeable { touch-action: none; user-select: none; cursor: grab; }
+.reel.is-swipeable:active { cursor: grabbing; }
 .reel-strip { width: 100%; height: 100%; display: grid; grid-template-rows: repeat(3,1fr); }
-.slot-symbol { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; background: linear-gradient(150deg,#f4f8f8,#cbdbe7); border-bottom: 1px solid #93abc1; transition: filter .2s, transform .2s; }
+.slot-symbol { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; background: var(--slot-background); border-bottom: 1px solid #93abc1; transition: filter .2s, transform .2s; }
 .slot-symbol::before { content: ''; position: absolute; inset: 9% 10% 14%; border-radius: 50%; background: color-mix(in srgb,var(--hero-color) 17%,#183557); border: 2px solid color-mix(in srgb,var(--hero-color) 75%,white); box-shadow: inset 0 2px 5px #fff7,0 2px 3px #24466a66; }
 .symbol-medallion { position: absolute; left: 17%; top: 4%; width: 66%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; }
 .symbol-medallion .atlas-heroPortrait { position: absolute; inset: 0; background-size: 560% auto; background-position-y: 29%; filter: saturate(.9) contrast(1.05); }
@@ -77,10 +79,22 @@ button:disabled { cursor: default; }
 .xp-badge i { position: absolute; left: -13%; top: 50%; translate: 0 -50%; width: 46%; aspect-ratio: 1; background: linear-gradient(#fff986,#ffb71b); clip-path: polygon(50% 0,61% 34%,98% 35%,68% 56%,79% 92%,50% 70%,21% 92%,32% 56%,2% 35%,39% 34%); filter: drop-shadow(0 1px 1px #754000); }
 .xp-badge b { font-size: clamp(7px,1.9vw,12px); line-height: 1; color: #fff; text-shadow: 0 1px 1px #061b39; }
 .slot-symbol.is-winning { z-index: 3; animation: winPulse .42s ease-in-out alternate infinite; filter: brightness(1.35) drop-shadow(0 0 8px #ffed66); }
+.slot-machine.has-combo { filter: drop-shadow(0 -4px 9px rgba(5,17,44,.55)) drop-shadow(0 0 14px #ffd83d); }
+.slot-machine.has-combo .reel-grid { overflow: visible; box-shadow: 0 0 8px #fff,0 0 20px #ffd940,0 0 36px #ff6e37; animation: comboReelGlow .3s ease-in-out alternate infinite; }
+.slot-machine.has-combo .slot-symbol.is-winning { animation: comboSymbolPulse .25s ease-in-out alternate infinite; filter: brightness(1.65) saturate(1.35) drop-shadow(0 0 10px #fff36a); }
+.slot-machine.has-combo .win-line-back { stroke: #ff4fd8; stroke-width: 11; opacity: .82; animation: comboLineHue .55s linear infinite; }
+.slot-machine.has-combo .win-line-core { stroke: #fff; stroke-width: 3.5; animation: traceWin .32s ease-out forwards,lineThrob .18s .32s alternate infinite; }
+.combo-slot-aura { position: absolute; z-index: 7; left: 15.5%; top: 14%; width: 60%; height: 65%; border-radius: 12%; pointer-events: none; border: 3px solid #fff38a; box-shadow: inset 0 0 18px #ffdf45,0 0 12px #fff,0 0 28px #ff9a28; animation: comboAuraPulse .32s ease-in-out alternate infinite; }
+.combo-slot-aura::before,.combo-slot-aura::after { content: ''; position: absolute; inset: -12%; border: 2px solid #66f5ff; border-radius: 14%; animation: comboAuraRing 1.05s ease-out infinite; }
+.combo-slot-aura::after { animation-delay: .35s; border-color: #ff62de; }
+.combo-slot-aura > i { position: absolute; left: 50%; top: 50%; width: 170%; height: 6%; translate: -50% -50%; background: linear-gradient(90deg,transparent,#fff9,transparent); mix-blend-mode: screen; animation: comboAuraSweep .75s linear infinite; }
+.combo-slot-aura > i:nth-child(2) { rotate: 60deg; animation-delay: -.25s; }.combo-slot-aura > i:nth-child(3) { rotate: 120deg; animation-delay: -.5s; }
 .is-spinning .reel-strip { height: 400%; grid-template-rows: repeat(12,1fr); transform: translateY(-75%); animation: reelRoll .64s cubic-bezier(.18,.64,.24,1) both; animation-delay: calc(var(--reel) * .06s); }
 .is-spinning .slot-symbol { filter: blur(1.6px) saturate(.7); }
 .is-spinning .symbol-medallion .atlas { filter: blur(2.8px) saturate(.7); }
-.is-nudging .reel.nudge-target .reel-strip { height: 133.333%; grid-template-rows: repeat(4,1fr); transform: translateY(-25%); animation: nudgeStep .36s cubic-bezier(.22,.7,.28,1) both; }
+.is-nudging .reel.nudge-target .reel-strip { height: 133.333%; grid-template-rows: repeat(4,1fr); }
+.is-nudging.nudge-down .reel.nudge-target .reel-strip { transform: translateY(-25%); animation: nudgeStepDown .36s cubic-bezier(.22,.7,.28,1) both; }
+.is-nudging.nudge-up .reel.nudge-target .reel-strip { transform: translateY(0); animation: nudgeStepUp .36s cubic-bezier(.22,.7,.28,1) both; }
 .is-nudging .reel.nudge-target { position: relative; z-index: 2; box-shadow: inset 0 0 9px #ffe35b; }
 .is-nudging .reel:not(.nudge-target) { filter: brightness(.92); }
 .win-lines { position: absolute; z-index: 9; left: 19.2%; top: 20.5%; width: 52.9%; height: 52.5%; overflow: visible; pointer-events: none; }
@@ -88,6 +102,7 @@ button:disabled { cursor: default; }
 .win-line-core { stroke: #fff7a2; stroke-width: 2.7; stroke-linecap: round; stroke-dasharray: 150; stroke-dashoffset: 150; animation: traceWin .48s .08s ease-out forwards, lineThrob .3s .55s alternate infinite; }
 .slot-win-flash { position: absolute; z-index: 8; left: 18%; top: 19%; width: 56%; height: 56%; border-radius: 8%; background: radial-gradient(circle,#fff8 0,#fff0 66%); mix-blend-mode: screen; pointer-events: none; animation: winFlash .72s ease-out both; }
 .slot-celebrating .preparation-panel { animation: screenPunch .38s ease-in-out; }
+.game-screen.combo-celebrating { animation: comboScreenPunch .75s cubic-bezier(.2,.85,.25,1) both; }
 .lever-hit { position: absolute; z-index: 4; left: 75.1%; top: 18.2%; width: 19%; height: 50%; padding: 0; overflow: hidden; border-radius: 38% 38% 31% 31%; background: linear-gradient(145deg,#307ccc,#123d7a 72%); border: clamp(2px,.65vw,4px) solid #e8c361; box-shadow: inset 0 0 0 3px #63d8ff66,inset 0 -7px 10px #071d48,0 3px 3px #09204d88; }
 .lever-track { position: absolute; left: 39%; top: 20%; width: 22%; height: 69%; border-radius: 999px; background: #101b27; border: 2px solid #cda84d; box-shadow: inset 0 0 5px #000; }
 .lever-arm { position: absolute; inset: 4% 16% 8%; transform-origin: 50% 90%; }
@@ -157,6 +172,32 @@ button:disabled { cursor: default; }
 .reward-flight > i { position: absolute; width: 18%; aspect-ratio: 1; border-radius: 50%; background: var(--hero-color); box-shadow: 0 0 7px var(--hero-color); animation: trailSpark .5s ease-out infinite; }
 .reward-flight > i:nth-of-type(1) { left: -15%; top: 52%; }.reward-flight > i:nth-of-type(2) { left: 38%; top: 112%; animation-delay: .12s; }.reward-flight > i:nth-of-type(3) { left: 92%; top: 62%; animation-delay: .25s; }
 
+/* Multi-line jackpot celebration */
+.combo-celebration { position: absolute; inset: 0; z-index: 90; overflow: hidden; pointer-events: none; }
+.combo-screen-flash { position: absolute; inset: 0; background: radial-gradient(circle at 50% 67%,#fff 0 2%,#ffed75bb 12%,#ff4ac84d 34%,transparent 68%); mix-blend-mode: screen; animation: comboScreenFlash 1.05s ease-out both; }
+.combo-rays { position: absolute; left: 50%; top: 67%; width: 155%; aspect-ratio: 1; translate: -50% -50%; opacity: .52; background: repeating-conic-gradient(from 0deg,transparent 0 8deg,#ffe45f 9deg 13deg,transparent 14deg 23deg,#70f6ff 24deg 27deg,transparent 28deg 38deg); mask-image: radial-gradient(circle,black 0 42%,transparent 73%); animation: comboRays 3.4s linear infinite,comboRaysIn .65s ease-out both; }
+.combo-shockwave { position: absolute; left: 50%; top: 68%; width: 5%; aspect-ratio: 1; translate: -50% -50%; }
+.combo-shockwave i { position: absolute; inset: 0; border: clamp(2px,.7vw,4px) solid #fff; border-radius: 50%; box-shadow: 0 0 12px #ffcf33,inset 0 0 12px #66f6ff; animation: comboShockwave 1.35s .08s ease-out both; }
+.combo-shockwave i:nth-child(2) { animation-delay: .22s; border-color: #ffe14c; }.combo-shockwave i:nth-child(3) { animation-delay: .38s; border-color: #ff55df; }
+.combo-banner { position: absolute; z-index: 4; left: 50%; top: 48.5%; translate: -50% 0; width: 88%; display: flex; flex-direction: column; align-items: center; text-align: center; filter: drop-shadow(0 7px 1px #632658) drop-shadow(0 0 15px #ffdf55); animation: comboBanner 1.82s cubic-bezier(.16,.9,.25,1.18) both; }
+.combo-banner::before { content: ''; position: absolute; z-index: -1; left: 2%; right: 2%; top: 23%; height: 52%; transform: skewX(-10deg); background: linear-gradient(100deg,transparent 0,#6b1faee8 8%,#d630b8f2 25%,#ff9c31f5 50%,#d630b8f2 75%,#6b1faee8 92%,transparent); border-block: 3px solid #fff09b; box-shadow: inset 0 0 14px #ffde52,0 0 18px #ff4fd5; }
+.combo-banner small { padding: .5% 7%; border-radius: 999px; background: linear-gradient(#fff9a5,#ffac24); border: 2px solid #fff; color: #9b235d; font-size: clamp(9px,2.6vw,16px); font-weight: 800; line-height: 1.1; letter-spacing: .17em; text-shadow: 0 1px #fff5; box-shadow: 0 3px 0 #b73b56; animation: comboLabelBounce .32s .22s ease-out both; }
+.combo-banner strong { display: flex; align-items: baseline; justify-content: center; gap: 2%; width: 100%; margin-top: -1%; line-height: .76; transform: rotate(-2deg); white-space: nowrap; }
+.combo-banner strong span { color: #fff; font-size: clamp(38px,12.5vw,78px); font-weight: 800; letter-spacing: -.04em; -webkit-text-stroke: clamp(1px,.55vw,3px) #7a225f; text-shadow: 0 4px 0 #d344a6,0 0 9px #fff; }
+.combo-banner strong b { color: #fff36b; font-size: clamp(48px,16vw,98px); font-weight: 800; letter-spacing: -.08em; -webkit-text-stroke: clamp(1px,.65vw,4px) #b74735; text-shadow: 0 5px 0 #ff6b24,0 0 12px #fff84f; animation: comboMultiplierSlam .42s .12s cubic-bezier(.15,.95,.25,1.35) both; }
+.combo-banner em { margin-top: 1%; padding: .8% 5%; border-radius: 999px; background: #3a1b6ee6; border: 2px solid #86f5ff; box-shadow: 0 0 10px #5eeeff; color: #fff; font-size: clamp(10px,2.8vw,17px); font-style: normal; font-weight: 800; letter-spacing: .08em; text-shadow: 0 2px #1d1251; }
+.combo-banner p { margin: 1.5% 0 0; padding: .7% 4%; border-radius: 999px; background: #081a43e8; border: 2px solid #ffd957; font-size: clamp(10px,2.8vw,17px); font-weight: 800; letter-spacing: .03em; box-shadow: 0 0 10px #ffd447; text-shadow: 0 2px #071331; }
+.combo-banner p b { margin-left: .35em; color: #fff56b; font-size: 1.18em; }
+.combo-x4 .combo-banner { filter: drop-shadow(0 8px 1px #432072) drop-shadow(0 0 22px #ffed4d); }
+.combo-x4 .combo-banner::before { background: linear-gradient(100deg,transparent 0,#30229bea 8%,#8f36dff3 25%,#ff5dc8f5 50%,#8f36dff3 75%,#30229bea 92%,transparent); box-shadow: inset 0 0 16px #fff25e,0 0 25px #ae61ff; }
+.combo-firework { position: absolute; z-index: 3; left: 18%; top: 58%; width: 4%; aspect-ratio: 1; }
+.combo-firework.firework-right { left: 82%; top: 55%; animation-delay: .12s; }
+.combo-firework i { position: absolute; left: 42%; top: 42%; width: 18%; height: 100%; border-radius: 999px; background: linear-gradient(#fff,#ffe238 35%,#ff48cd 74%,transparent); box-shadow: 0 0 5px #fff56c; transform-origin: 50% 50%; rotate: var(--spark-angle); animation: comboFirework .85s var(--spark-delay) ease-out both; }
+.combo-firework.firework-right i { background: linear-gradient(#fff,#61efff 35%,#9a5cff 74%,transparent); }
+.combo-confetti { position: absolute; z-index: 5; inset: 0; }
+.combo-confetti i { position: absolute; left: var(--piece-x); top: -5%; width: clamp(5px,1.4vw,9px); height: clamp(10px,2.8vw,17px); border-radius: 2px; background: #ffd83c; box-shadow: 0 0 4px #fff6; animation: comboConfetti var(--piece-duration) var(--piece-delay) cubic-bezier(.2,.62,.52,1) both; }
+.combo-confetti i:nth-child(4n+2) { background: #51efff; }.combo-confetti i:nth-child(4n+3) { background: #ff55ce; }.combo-confetti i:nth-child(4n) { background: #9cff4b; }
+
 /* Generated UI-backed overlays */
 .modal-backdrop { position: absolute; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(5,12,31,.78); backdrop-filter: blur(3px); }
 .level-modal { width: 92%; text-align: center; margin-top: -5%; }
@@ -175,6 +216,11 @@ button:disabled { cursor: default; }
 .slot-upgrade-backdrop { background: rgba(6,14,36,.84); }
 .upgrade-slot-preview { width: 74%; height: 27vh; max-height: 42vw; margin: -1% auto -4%; overflow: hidden; }
 .upgrade-slot-preview .slot-machine { width: 100%; }.upgrade-slot-preview .lever-hit,.upgrade-slot-preview .nudge-button,.upgrade-slot-preview .spin-counter { pointer-events: none; }
+.inspection-reel { touch-action: none; user-select: none; cursor: grab; outline: none; }
+.inspection-reel:active { cursor: grabbing; }
+.inspection-reel:focus-visible { box-shadow: inset 0 0 0 2px #77ecff, inset 0 0 10px #3ddcff; }
+.inspection-reel-strip { height: 300%; grid-template-rows: repeat(9,1fr); transform: translateY(calc(-33.333333% + var(--inspection-drag))); will-change: transform; }
+.inspection-reel.is-settling .inspection-reel-strip { transition: transform .22s cubic-bezier(.2,.72,.28,1); }
 .upgrade-options { display: flex; gap: 2%; padding: 0 2%; justify-content: center; }
 .upgrade-options button { width: 31.5%; min-height: 19vh; padding: 4% 3%; border-radius: 18px 18px 28px 28px; background: linear-gradient(#40dcff,#eafcff 52%); color: #1a3655; border: 3px solid #8ef4ff; box-shadow: 0 6px 0 #087da7,0 0 12px #21ddff88; display: flex; flex-direction: column; align-items: center; }
 .upgrade-glyph { position: relative; width: 76%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; border: 3px solid #fff; background: #163761; }
@@ -204,17 +250,36 @@ button:disabled { cursor: default; }
 .end-card p { font-size: clamp(15px,4vw,24px); }.end-card .start-button { bottom: 8%; }
 
 @keyframes reelRoll { from { transform: translateY(-75%); } to { transform: translateY(0); } }
-@keyframes nudgeStep { 0% { transform: translateY(-25%); } 72% { transform: translateY(1.5%); } 100% { transform: translateY(0); } }
+@keyframes nudgeStepDown { 0% { transform: translateY(-25%); } 72% { transform: translateY(1.5%); } 100% { transform: translateY(0); } }
+@keyframes nudgeStepUp { 0% { transform: translateY(0); } 72% { transform: translateY(-26.5%); } 100% { transform: translateY(-25%); } }
 @keyframes winPulse { to { transform: scale(.91); } }
+@keyframes comboSymbolPulse { to { transform: scale(.88) rotate(-1deg); } }
+@keyframes comboReelGlow { to { box-shadow: 0 0 10px #fff,0 0 28px #66f3ff,0 0 42px #ff4dcb; } }
+@keyframes comboLineHue { to { filter: hue-rotate(360deg); } }
+@keyframes comboAuraPulse { to { filter: brightness(1.45); transform: scale(1.035); } }
+@keyframes comboAuraRing { from { opacity: 1; transform: scale(.82); } to { opacity: 0; transform: scale(1.23); } }
+@keyframes comboAuraSweep { to { transform: rotate(360deg); } }
 @keyframes cabinetKick { 0%,100% { transform: translate(0); } 12% { transform: translate(1%,-1%); } 28% { transform: translate(-.8%,.5%) rotate(-.35deg); } 48% { transform: translate(.5%); } }
 @keyframes traceWin { to { stroke-dashoffset: 0; } }
 @keyframes lineThrob { to { stroke-width: 4.5; opacity: .72; } }
 @keyframes winFlash { 0% { opacity: 0; transform: scale(.3); } 28% { opacity: 1; } 100% { opacity: 0; transform: scale(1.25); } }
 @keyframes screenPunch { 35% { transform: scale(1.035); filter: brightness(1.22); } }
+@keyframes comboScreenPunch { 0%,100% { transform: translate(0) scale(1); } 9% { transform: translate(-1.2%,.35%) scale(1.025); } 18% { transform: translate(1%,-.45%) scale(1.015); } 28% { transform: translate(-.65%,.25%) scale(1.008); } 42% { transform: translate(.35%,-.15%); } }
+@keyframes comboScreenFlash { 0% { opacity: 0; transform: scale(.2); } 12% { opacity: 1; } 100% { opacity: 0; transform: scale(1.75); } }
+@keyframes comboRays { to { rotate: 360deg; } }
+@keyframes comboRaysIn { from { opacity: 0; transform: scale(.25); } }
+@keyframes comboShockwave { from { opacity: 1; transform: scale(.25); } to { opacity: 0; transform: scale(18); } }
+@keyframes comboBanner { 0% { opacity: 0; transform: translateY(35%) scale(.12) rotate(8deg); } 13% { opacity: 1; transform: translateY(-8%) scale(1.18) rotate(-3deg); } 24% { transform: translateY(0) scale(.96) rotate(1deg); } 34%,78% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: translateY(-28%) scale(1.08); } }
+@keyframes comboLabelBounce { from { opacity: 0; transform: translateY(-80%) scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes comboMultiplierSlam { from { opacity: 0; transform: scale(3.5) rotate(18deg); } to { opacity: 1; transform: none; } }
+@keyframes comboFirework { from { opacity: 1; transform: translateY(0) scaleY(.2); } to { opacity: 0; transform: translateY(-850%) scaleY(1.3); } }
+@keyframes comboConfetti { 0% { opacity: 0; transform: translateY(0) rotate(0) scale(.4); } 8% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--piece-drift),105vh) rotate(760deg) scale(1); } }
 @keyframes rewardFly { 0% { left: var(--sx); top: var(--sy); transform: scale(.4); opacity: 0; } 14% { transform: scale(1.3); opacity: 1; } 48% { left: var(--mx); top: var(--my); } 88% { left: var(--tx); top: var(--ty); transform: scale(.8); opacity: 1; } 100% { left: var(--tx); top: var(--ty); transform: scale(1.8); opacity: 0; } }
 @keyframes rewardSpin { to { transform: rotate(360deg); } }
 @keyframes trailSpark { to { transform: translateY(30px) scale(0); opacity: 0; } }
-@keyframes heroSummon { 0% { opacity: 0; transform: translateY(30%) scale(.15); filter: brightness(4); } 60% { opacity: 1; transform: translateY(-5%) scale(1.15); } 100% { transform: none; } }
+/* Do not animate `filter` here: iOS WebKit can retain the bright first keyframe
+   on a CSS-background sprite after the animation has visually finished. */
+@keyframes heroSummon { 0% { opacity: 0; transform: translateY(30%) scale(.15); } 60% { opacity: 1; transform: translateY(-5%) scale(1.15); } 100% { opacity: 1; transform: none; } }
 @keyframes summonRing { 0% { opacity: 1; transform: scale(.2); } 100% { opacity: 0; transform: scale(1.8); } }
 @keyframes battlePop { from { transform: scale(.3); opacity: 0; } }
 @keyframes projectileTravel { 0% { left: var(--x1); top: var(--y1); opacity: 0; transform: translate(-50%,-50%) rotate(var(--shot-angle)) scale(.45); } 12% { opacity: 1; } 78% { opacity: 1; transform: translate(-50%,-50%) rotate(var(--shot-angle)) scale(1); } 100% { left: var(--x2); top: var(--y2); opacity: 0; transform: translate(-50%,-50%) rotate(var(--shot-angle)) scale(.7); } }

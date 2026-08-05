@@ -2,6 +2,7 @@ export type HeroId = 'freya' | 'glor' | 'frosty' | 'hadens' | 'jenny';
 export type EnemyType = 'minion' | 'elite' | 'boss';
 export type Phase = 'title' | 'preparation' | 'combat' | 'waveClear' | 'slotUpgrade' | 'victory' | 'defeat';
 export type Rarity = 'common' | 'rare' | 'epic';
+export type NudgeDirection = 'down' | 'up';
 
 export interface HeroStats {
   damage: number;
@@ -60,6 +61,8 @@ export interface EnemyState {
   damage: number;
   alive: boolean;
   lastHit?: number;
+  isSieging?: boolean;
+  nextBaseAttackAt?: number;
 }
 
 export interface ShotFx {
@@ -79,6 +82,13 @@ export interface RewardFlight {
   xp: number;
   fromIndex: number;
   toSlot: number;
+}
+
+export interface ComboFeedback {
+  id: number;
+  lineCount: number;
+  multiplier: 2 | 4;
+  totalXp: number;
 }
 
 export interface SlotUpgrade {

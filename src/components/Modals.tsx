@@ -2,7 +2,7 @@ import { HEROES } from '../config/gameConfig';
 import type { GameController } from '../hooks/useGame';
 import type { Rarity } from '../types/game';
 import { AtlasSprite } from './AtlasSprite';
-import { SlotMachine } from './SlotMachine';
+import { ReelUpgradePreview } from './ReelUpgradePreview';
 
 export function LevelUpModal({ game }: { game: GameController }) {
   if (!game.levelHero) return null;
@@ -32,7 +32,7 @@ export function SlotUpgradeModal({ game }: { game: GameController }) {
       <section className="slot-upgrade-modal">
         <div className="ribbon ribbon-blue"><AtlasSprite atlas="ui" index={0} /><strong>REEL UPGRADE</strong></div>
         <div className="upgrade-slot-preview">
-          <SlotMachine grid={game.grid} spinsLeft={0} nudgesLeft={0} spinning={false} nudgingReel={null} pendingGrid={null} winningCells={[]} winningLines={[]} noMatch={false} onSpin={() => {}} onNudge={() => {}} />
+          <ReelUpgradePreview xpByReel={game.xpByReel} />
         </div>
         <p>CHOOSE ONE ENCHANTMENT</p>
         <div className="upgrade-options">
