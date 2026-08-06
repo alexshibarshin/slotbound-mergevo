@@ -94,8 +94,9 @@ export interface ComboFeedback {
 export interface SlotUpgrade {
   id: string;
   title: string;
-  description: string;
+  stars: number;
   affectedHeroes: HeroId[];
   affectedReels: number[];
+  nudgeBonus?: number;
   apply: (xpByReel: number[][]) => number[][];
 }

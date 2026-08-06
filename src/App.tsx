@@ -21,7 +21,15 @@ function TitleScreen({ onStart }: { onStart: () => void }) {
     <main className="title-screen">
       <img src="/assets/arena.png" alt="" />
       <div className="title-king"><AtlasSprite atlas="king" index={0} /></div>
-      <div className="title-copy"><span>ROGUELITE TOWER DEFENSE</span><h1>RUNE<br /><b>REELS</b></h1><p>Spin. Empower. Defend.</p></div>
+      <div className="title-copy">
+        <span className="title-eyebrow">ROGUELITE TOWER DEFENSE</span>
+        <h1 aria-label="Slot Siege">
+          <span className="title-word title-slot">SLOT</span>
+          <span className="title-word title-siege">SIEGE</span>
+        </h1>
+        <div className="title-jackpot" aria-hidden="true"><i /><b>777</b><i /></div>
+        <p>Spin. Summon. Defend.</p>
+      </div>
       <button className="start-button" onClick={onStart}>TO BATTLE</button>
     </main>
   );

@@ -55,6 +55,7 @@ export function useGame(): GameController {
   const [grid, setGrid] = useState<SlotCell[]>(initialGrid);
   const [spinsLeft, setSpinsLeft] = useState<number>(GAME_CONFIG.stage.preparationSpins);
   const [nudgesLeft, setNudgesLeft] = useState<number>(GAME_CONFIG.stage.nudgesPerPreparation);
+  const [nudgeUpgradesTaken, setNudgeUpgradesTaken] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [nudgingReel, setNudgingReel] = useState<number | null>(null);
   const [nudgingDirection, setNudgingDirection] = useState<NudgeDirection | null>(null);
@@ -83,6 +84,7 @@ export function useGame(): GameController {
     setHeroes([]); setXpByReel(matrix); setGrid(createGrid(matrix));
     setSpinsLeft(GAME_CONFIG.stage.preparationSpins);
     setNudgesLeft(GAME_CONFIG.stage.nudgesPerPreparation);
+    setNudgeUpgradesTaken(0);
     setWinningCells([]); setWinningLines([]); setNoMatch(false); setRewardFlights([]); setLevelHero(null); clearComboFeedback();
     setSpinning(false); setNudgingReel(null); setNudgingDirection(null); setPendingGrid(null); openingSpins.current = 0;
   }, [clearComboFeedback]);
@@ -169,7 +171,7 @@ export function useGame(): GameController {
     const result = nudgeReel(grid, reel, xpByReel, direction);
     setNudgingReel(reel); setNudgingDirection(direction); setPendingGrid(result);
     window.setTimeout(() => {
-      setGrid(result); setNudgesLeft(0); setSpinning(false); setNudgingReel(null); setNudgingDirection(null); setPendingGrid(null); awardWins(result, grid);
+      setGrid(result); setNudgesLeft((value) => Math.max(0, value - 1)); setSpinning(false); setNudgingReel(null); setNudgingDirection(null); setPendingGrid(null); awardWins(result, grid);
     }, GAME_CONFIG.slot.nudgeDurationMs);
   }, [awardWins, clearComboFeedback, grid, nudgesLeft, phase, spinning, xpByReel]);
 
@@ -190,9 +192,9 @@ export function useGame(): GameController {
     if (clearTimer.current) window.clearTimeout(clearTimer.current);
     clearTimer.current = window.setTimeout(() => {
       if (wave >= GAME_CONFIG.stage.totalWaves) setPhase('victory');
-      else { setSlotUpgradeChoices(createSlotUpgradeChoices()); setPhase('slotUpgrade'); }
+      else { setSlotUpgradeChoices(createSlotUpgradeChoices(nudgeUpgradesTaken)); setPhase('slotUpgrade'); }
     }, GAME_CONFIG.feedback.waveClearMs);
-  }, [wave]);
+  }, [nudgeUpgradesTaken, wave]);
 
   const openLevelUp = useCallback((heroId: HeroId) => {
     const hero = heroes.find((candidate) => candidate.id === heroId);
@@ -216,14 +218,19 @@ export function useGame(): GameController {
 
   const chooseSlotUpgrade = useCallback((upgrade: SlotUpgrade) => {
     const matrix = upgrade.apply(xpByReel);
+    const nextNudgeUpgradesTaken = Math.min(
+      GAME_CONFIG.slotUpgrades.maxNudgeUpgrades,
+      nudgeUpgradesTaken + (upgrade.nudgeBonus ?? 0),
+    );
     setXpByReel(matrix); setGrid((current) => current.map((cell, index) => ({
       ...cell, xp: matrix[index % 3][HERO_ORDER.indexOf(cell.heroId)],
     })));
+    setNudgeUpgradesTaken(nextNudgeUpgradesTaken);
     setWave((value) => value + 1);
     setSpinsLeft(GAME_CONFIG.stage.preparationSpins);
-    setNudgesLeft(GAME_CONFIG.stage.nudgesPerPreparation);
+    setNudgesLeft(GAME_CONFIG.stage.nudgesPerPreparation + nextNudgeUpgradesTaken);
     setSlotUpgradeChoices([]); setPhase('preparation');
-  }, [xpByReel]);
+  }, [nudgeUpgradesTaken, xpByReel]);
 
   const moveHero = useCallback((heroId: HeroId, toSlot: number) => {
     setHeroes((current) => {

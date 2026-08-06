@@ -153,7 +153,7 @@ export function ReelUpgradePreview({ xpByReel }: { xpByReel: number[][] }) {
                       key={`${reel}-${offset}`}
                     >
                       <span className="symbol-medallion"><AtlasSprite atlas="heroPortrait" index={HEROES[heroId].atlasIndex} /></span>
-                      <span className="xp-badge"><i /><b>+{xp}</b></span>
+                      <span className="upgrade-star slot-xp-star" aria-label={`${xp} experience star${xp === 1 ? '' : 's'}`}><b>{xp}</b></span>
                     </div>
                   );
                 })}

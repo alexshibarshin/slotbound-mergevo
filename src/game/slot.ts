@@ -47,60 +47,61 @@ export function findWins(grid: SlotCell[]): number[][] {
 const cloneMatrix = (matrix: number[][]) => matrix.map((row) => [...row]);
 const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
 
-export function createSlotUpgradeChoices(): SlotUpgrade[] {
+export function createSlotUpgradeChoices(nudgeUpgradesTaken = 0): SlotUpgrade[] {
   const reel = Math.floor(Math.random() * 3);
   const secondReel = (reel + 1 + Math.floor(Math.random() * 2)) % 3;
   const heroIndex = Math.floor(Math.random() * HERO_ORDER.length);
   const secondHero = (heroIndex + 1 + Math.floor(Math.random() * 4)) % HERO_ORDER.length;
   const hero = HERO_ORDER[heroIndex];
   const hero2 = HERO_ORDER[secondHero];
+  const linkedReels = [reel, secondReel].sort((a, b) => a - b);
   const all: SlotUpgrade[] = [
     {
       id: `focus-${reel}-${hero}`,
       title: 'Focused Etching',
-      description: `${heroLabel(hero)} symbols on reel ${reel + 1} gain +${GAME_CONFIG.slotUpgrades.focusedXp} XP`,
+      stars: GAME_CONFIG.slotUpgrades.focusedXp,
       affectedHeroes: [hero], affectedReels: [reel],
       apply: (matrix) => { const next = cloneMatrix(matrix); next[reel][heroIndex] += GAME_CONFIG.slotUpgrades.focusedXp; return next; },
     },
     {
       id: `link-${reel}-${secondReel}-${hero}`,
       title: 'Linked Reels',
-      description: `${heroLabel(hero)} symbols on reels ${reel + 1} and ${secondReel + 1} gain +${GAME_CONFIG.slotUpgrades.linkedXp} XP`,
-      affectedHeroes: [hero], affectedReels: [reel, secondReel],
+      stars: GAME_CONFIG.slotUpgrades.linkedXp,
+      affectedHeroes: [hero], affectedReels: linkedReels,
       apply: (matrix) => { const next = cloneMatrix(matrix); next[reel][heroIndex] += GAME_CONFIG.slotUpgrades.linkedXp; next[secondReel][heroIndex] += GAME_CONFIG.slotUpgrades.linkedXp; return next; },
     },
     {
       id: `pair-${reel}-${hero}-${hero2}`,
       title: 'Twin Blessing',
-      description: `${heroLabel(hero)} and ${heroLabel(hero2)} on reel ${reel + 1} gain +${GAME_CONFIG.slotUpgrades.pairedXp} XP`,
+      stars: GAME_CONFIG.slotUpgrades.pairedXp,
       affectedHeroes: [hero, hero2], affectedReels: [reel],
       apply: (matrix) => { const next = cloneMatrix(matrix); next[reel][heroIndex] += GAME_CONFIG.slotUpgrades.pairedXp; next[reel][secondHero] += GAME_CONFIG.slotUpgrades.pairedXp; return next; },
     },
     {
       id: `reel-${reel}`,
       title: 'Golden Reel',
-      description: `Every symbol on reel ${reel + 1} gains +${GAME_CONFIG.slotUpgrades.wholeReelXp} XP`,
+      stars: GAME_CONFIG.slotUpgrades.wholeReelXp,
       affectedHeroes: [], affectedReels: [reel],
       apply: (matrix) => { const next = cloneMatrix(matrix); next[reel] = next[reel].map((v) => v + GAME_CONFIG.slotUpgrades.wholeReelXp); return next; },
     },
-    {
-      id: `wild-${reel}-${hero}`,
-      title: 'Wild Spark',
-      description: `${heroLabel(hero)} on reel ${reel + 1} surges with +${GAME_CONFIG.slotUpgrades.wildXp} XP`,
-      affectedHeroes: [hero], affectedReels: [reel],
-      apply: (matrix) => { const next = cloneMatrix(matrix); next[reel][heroIndex] += GAME_CONFIG.slotUpgrades.wildXp; return next; },
-    },
   ];
+  if (nudgeUpgradesTaken < GAME_CONFIG.slotUpgrades.maxNudgeUpgrades) {
+    all.push({
+      id: `extra-nudge-${nudgeUpgradesTaken + 1}`,
+      title: 'Extra Nudge',
+      stars: 0,
+      affectedHeroes: [],
+      affectedReels: [],
+      nudgeBonus: 1,
+      apply: cloneMatrix,
+    });
+  }
   const choices: SlotUpgrade[] = [];
   while (choices.length < 3) {
     const option = pick(all);
     if (!choices.includes(option)) choices.push(option);
   }
   return choices;
-}
-
-function heroLabel(id: HeroId): string {
-  return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
 export const initialXpMatrix = () => Array.from({ length: 3 }, () => HERO_ORDER.map(() => 1));

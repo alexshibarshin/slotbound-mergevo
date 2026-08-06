@@ -95,7 +95,7 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
                     key={`${reel}-${row}-${cell.heroId}`}
                   >
                     <span className="symbol-medallion"><AtlasSprite atlas="heroPortrait" index={HEROES[cell.heroId].atlasIndex} /></span>
-                    <span className="xp-badge"><i /><b>+{cell.xp}</b></span>
+                    <span className="upgrade-star slot-xp-star" aria-label={`${cell.xp} experience star${cell.xp === 1 ? '' : 's'}`}><b>{cell.xp}</b></span>
                   </div>
                 );
               })}
@@ -128,7 +128,7 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
           onClick={() => onNudge(reel, 'down')}
           disabled={nudgesLeft === 0 || spinning}
           aria-label={`Nudge reel ${reel + 1} down`}
-        ><span className="nudge-chevron" /><small>NUDGE</small></button>
+        ><span className="nudge-chevron" /><small>NUDGE ×{nudgesLeft}</small></button>
       ))}
       <button className="lever-hit" onClick={onSpin} disabled={spinsLeft === 0 || spinning} aria-label="Spin reels">
         <span className="lever-track" />

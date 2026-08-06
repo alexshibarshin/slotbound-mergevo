@@ -124,7 +124,7 @@ export const GAME_CONFIG = {
       { minXp: 0, color: '#f8fafb' }, // white
     ],
   },
-  slotUpgrades: { focusedXp: 10, linkedXp: 5, pairedXp: 5, wholeReelXp: 2, wildXp: 10 },
+  slotUpgrades: { focusedXp: 10, linkedXp: 5, pairedXp: 5, wholeReelXp: 2, maxNudgeUpgrades: 2 },
   feedback: { winHighlightMs: 1050, rewardDelayMs: 340, rewardFlightMs: 1450, comboCelebrationMs: 1900, waveClearMs: 1300 },
   combat: {
     tickMs: 50,
