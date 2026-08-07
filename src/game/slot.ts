@@ -106,4 +106,3 @@ export function createSlotUpgradeChoices(nudgeUpgradesTaken = 0): SlotUpgrade[] 
 
 export const initialXpMatrix = () => Array.from({ length: 3 }, () => HERO_ORDER.map(() => 1));
 export const initialGrid = () => createGrid(initialXpMatrix(), false);
-export const spinsPerPreparation = GAME_CONFIG.stage.preparationSpins;

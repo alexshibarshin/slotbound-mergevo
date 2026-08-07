@@ -1,8 +1,9 @@
 export type HeroId = 'freya' | 'glor' | 'frosty' | 'hadens' | 'jenny';
 export type EnemyType = 'minion' | 'elite' | 'boss';
-export type Phase = 'title' | 'preparation' | 'combat' | 'waveClear' | 'slotUpgrade' | 'victory' | 'defeat';
+export type Phase = 'title' | 'combat' | 'victory' | 'defeat';
 export type Rarity = 'common' | 'rare' | 'epic';
 export type NudgeDirection = 'down' | 'up';
+export type CombatReward = 'spin' | 'nudge';
 
 export interface HeroStats {
   damage: number;
@@ -60,6 +61,8 @@ export interface EnemyState {
   speed: number;
   damage: number;
   alive: boolean;
+  reward?: CombatReward;
+  slotXp: number;
   lastHit?: number;
   isSieging?: boolean;
   nextBaseAttackAt?: number;

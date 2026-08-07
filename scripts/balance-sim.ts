@@ -2,9 +2,9 @@ import { GAME_CONFIG, HEROES, HERO_ORDER, PEDESTAL_POSITIONS } from '../src/conf
 import { combatDistance, getAbilityTargets } from '../src/game/combat.ts';
 import { getComboMultiplier } from '../src/game/combo.ts';
 import { calculateHeroStats } from '../src/game/statsCore.ts';
-import type { HeroId, HeroPerk, HeroState } from '../src/types/game.ts';
+import type { CombatReward, HeroId, HeroPerk, HeroState } from '../src/types/game.ts';
 
-type Strategy = 'random' | 'smart';
+type Strategy = 'random' | 'reasonable';
 type Rng = () => number;
 type SimEnemy = {
   type: 'minion' | 'elite' | 'boss';
@@ -13,44 +13,60 @@ type SimEnemy = {
   hp: number;
   speed: number;
   damage: number;
+  reward?: CombatReward;
   isSieging?: boolean;
   nextBaseAttackAt?: number;
 };
-
+type PendingSlotAction = { kind: 'spin' | 'nudge' | 'feedback'; readyAt: number; reel?: number };
+type RunState = {
+  hp: number;
+  heroes: HeroState[];
+  matrix: number[][];
+  grid: HeroId[];
+  spins: number;
+  nudges: number;
+  slotLevel: number;
+  slotXp: number;
+  openingSpins: number;
+  levelUps: number;
+  slotUpgrades: number;
+  spinsSpent: number;
+  nudgesSpent: number;
+  spinsEarned: number;
+  nudgesEarned: number;
+};
 type WaveResult = {
   hpLost: number;
   leaks: number;
   deepestProgress: number;
   averageKillY: number;
   durationMs: number;
-  bossDeepestProgress: number | null;
+  spinsSpent: number;
+  nudgesSpent: number;
+  spinsEarned: number;
+  nudgesEarned: number;
 };
-
 type RunResult = {
   won: boolean;
-  flawless: boolean;
   deathWave: number | null;
   hp: number;
   levels: number[];
   levelUps: number;
+  slotLevel: number;
   recruited: number;
-  heroDamage: Record<HeroId, number>;
-  heroShots: Record<HeroId, number>;
+  spinsRemaining: number;
+  nudgesRemaining: number;
   waves: WaveResult[];
 };
 
-const runs = Number.parseInt(process.argv[2] ?? '2000', 10);
-const seed = Number.parseInt(process.argv[3] ?? '731_993'.replace('_', ''), 10);
-// A strong human heuristic: picks the higher-value offered perk/upgrade most of the time,
-// while still making occasional thematic or imperfect choices.
-const SMART_DECISION_ACCURACY = 1;
+const runs = Number.parseInt(process.argv[2] ?? '2500', 10);
+const seed = Number.parseInt(process.argv[3] ?? '731993', 10);
+const REASONABLE_DECISION_ACCURACY = 0.86;
 const WINNING_LINES = [
   [0, 1, 2], [3, 4, 5], [6, 7, 8],
   [0, 3, 6], [1, 4, 7], [2, 5, 8],
   [0, 4, 8], [2, 4, 6],
 ] as const;
-
-const getHeroStats = (hero: HeroState) => calculateHeroStats(hero, HEROES[hero.id]);
 
 function mulberry32(initialSeed: number): Rng {
   let state = initialSeed >>> 0;
@@ -72,9 +88,8 @@ const shuffle = <T>(items: readonly T[], rng: Rng): T[] => {
   }
   return result;
 };
-
-const blankHeroRecord = () => Object.fromEntries(HERO_ORDER.map((id) => [id, 0])) as Record<HeroId, number>;
 const initialMatrix = () => Array.from({ length: 3 }, () => HERO_ORDER.map(() => 1));
+const getHeroStats = (hero: HeroState) => calculateHeroStats(hero, HEROES[hero.id]);
 
 function makeGrid(matrix: number[][], rng: Rng, guaranteeWin: boolean): HeroId[] {
   const grid = Array.from({ length: 9 }, () => pick(HERO_ORDER, rng));
@@ -87,9 +102,7 @@ function makeGrid(matrix: number[][], rng: Rng, guaranteeWin: boolean): HeroId[]
 
 function nudgeGrid(grid: HeroId[], reel: number, rng: Rng): HeroId[] {
   const next = [...grid];
-  next[reel + 6] = next[reel + 3];
-  next[reel + 3] = next[reel];
-  next[reel] = pick(HERO_ORDER, rng);
+  next[reel + 6] = next[reel + 3]; next[reel + 3] = next[reel]; next[reel] = pick(HERO_ORDER, rng);
   return next;
 }
 
@@ -97,32 +110,25 @@ function winningLines(grid: HeroId[]) {
   return WINNING_LINES.filter(([a, b, c]) => grid[a] === grid[b] && grid[b] === grid[c]);
 }
 
-function heroPriority(id: HeroId, heroes: HeroState[], carryIds: HeroId[] = []): number {
+function heroPriority(id: HeroId, heroes: HeroState[]): number {
   const hero = heroes.find((candidate) => candidate.id === id);
-  if (!carryIds.length) {
-    if (!hero) return 1.35;
-    return 1 / (1 + Math.max(0, hero.level - 1) * 0.18);
-  }
-  if (carryIds.includes(id)) return carryIds.length === 1 ? 3.5 : 2.4;
-  return hero ? 0.55 : 0.7;
+  if (!hero) return 1.3;
+  return 1 / (1 + Math.max(0, hero.level - 1) * 0.16);
 }
 
-function nudgeScore(grid: HeroId[], reel: number, matrix: number[][], heroes: HeroState[], carryIds: HeroId[]): number {
+function nudgeScore(grid: HeroId[], reel: number, matrix: number[][], heroes: HeroState[]): number {
   let expected = 0;
   const previousWinKeys = new Set(winningLines(grid).map((line) => `${line.join('-')}:${grid[line[0]]}`));
   for (const newHero of HERO_ORDER) {
     const next = [...grid];
-    next[reel + 6] = next[reel + 3];
-    next[reel + 3] = next[reel];
-    next[reel] = newHero;
+    next[reel + 6] = next[reel + 3]; next[reel + 3] = next[reel]; next[reel] = newHero;
     const wins = winningLines(next);
     const rewardWins = wins.filter((line) => !previousWinKeys.has(`${line.join('-')}:${next[line[0]]}`));
     const multiplier = getComboMultiplier(wins.length);
-    const reward = rewardWins.reduce((sum, line) => sum + line.reduce((lineSum, index) => {
+    expected += rewardWins.reduce((sum, line) => sum + line.reduce((lineSum, index) => {
       const id = next[index];
-      return lineSum + matrix[index % 3][HERO_ORDER.indexOf(id)] * heroPriority(id, heroes, carryIds) * multiplier;
-    }, 0), 0);
-    expected += reward / HERO_ORDER.length;
+      return lineSum + matrix[index % 3][HERO_ORDER.indexOf(id)] * heroPriority(id, heroes) * multiplier;
+    }, 0), 0) / HERO_ORDER.length;
   }
   return expected;
 }
@@ -130,345 +136,282 @@ function nudgeScore(grid: HeroId[], reel: number, matrix: number[][], heroes: He
 function perkPower(hero: HeroState, perk: HeroPerk): number {
   const before = getHeroStats(hero);
   const after = getHeroStats({ ...hero, level: hero.level + 1, perks: [...hero.perks, perk.id] });
-  const definition = HEROES[hero.id];
+  const ability = HEROES[hero.id].ability;
   const targetFactor = (stats: typeof before) => {
-    if (definition.ability === 'missile') return Math.max(1, stats.pierce);
-    if (definition.ability === 'fireball') return 1 + stats.aoeRadius * 0.38;
-    if (definition.ability === 'icicle') return Math.min(stats.pierce, 1 + stats.beamWidth * 0.65);
-    if (definition.ability === 'sector') return 1 + stats.aoeRadius * 0.42;
+    if (ability === 'missile') return Math.max(1, stats.pierce);
+    if (ability === 'fireball') return 1 + stats.aoeRadius * 0.38;
+    if (ability === 'icicle') return Math.min(stats.pierce, 1 + stats.beamWidth * 0.65);
+    if (ability === 'sector') return 1 + stats.aoeRadius * 0.42;
     return 1 + stats.beamWidth * 0.38;
   };
   const score = (stats: typeof before) => stats.damage / stats.attackIntervalMs * targetFactor(stats) * (0.65 + Math.min(stats.range, 55) / 100);
   return score(after) / score(before);
 }
 
-function processLevels(heroes: HeroState[], strategy: Strategy, rng: Rng): number {
-  let levelUps = 0;
+function processLevels(state: RunState, strategy: Strategy, rng: Rng): number {
+  let levelsGained = 0;
   let changed = true;
   while (changed) {
     changed = false;
-    for (const hero of heroes) {
+    for (const hero of state.heroes) {
       const cost = GAME_CONFIG.hero.xpToLevel(hero.level);
       if (hero.xp < cost) continue;
       const available = HEROES[hero.id].perks.filter((perk) => !hero.perks.includes(perk.id));
       const veteran: HeroPerk = { id: `${hero.id}-veteran-mastery`, name: 'Veteran Mastery', description: '', rarity: 'epic' };
       const offered = available.length ? shuffle(available, rng).slice(0, GAME_CONFIG.hero.perkChoices) : [veteran];
-      const ranked = [...offered].sort((a, b) => perkPower(hero, b) - perkPower(hero, a));
-      const selected = strategy === 'random' || rng() > SMART_DECISION_ACCURACY ? pick(offered, rng) : ranked[0];
-      hero.xp -= cost;
-      hero.level += 1;
+      const best = [...offered].sort((a, b) => perkPower(hero, b) - perkPower(hero, a))[0];
+      const selected = strategy === 'reasonable' && rng() < REASONABLE_DECISION_ACCURACY ? best : pick(offered, rng);
+      hero.xp -= cost; hero.level += 1;
       if (!selected.id.endsWith('-veteran-mastery')) hero.perks.push(selected.id);
-      levelUps += 1;
-      changed = true;
+      state.levelUps += 1; levelsGained += 1; changed = true;
     }
   }
-  return levelUps;
+  return levelsGained;
 }
 
-function awardGrid(grid: HeroId[], matrix: number[][], heroes: HeroState[], previousGrid?: HeroId[]): number {
+function awardGrid(state: RunState, grid: HeroId[], strategy: Strategy, rng: Rng, previousGrid?: HeroId[]) {
   const gained = new Map<HeroId, number>();
   const previousWinKeys = new Set((previousGrid ? winningLines(previousGrid) : []).map((line) => `${line.join('-')}:${previousGrid?.[line[0]]}`));
   const wins = winningLines(grid);
-  const rewardWins = wins
-    .filter((line) => !previousWinKeys.has(`${line.join('-')}:${grid[line[0]]}`));
+  const rewardWins = wins.filter((line) => !previousWinKeys.has(`${line.join('-')}:${grid[line[0]]}`));
   const multiplier = getComboMultiplier(wins.length);
-  rewardWins
-    .forEach((line) => line.forEach((index) => {
-      const id = grid[index];
-      gained.set(id, (gained.get(id) ?? 0) + matrix[index % 3][HERO_ORDER.indexOf(id)] * multiplier);
-    }));
-  let recruited = 0;
+  rewardWins.forEach((line) => line.forEach((index) => {
+    const id = grid[index];
+    gained.set(id, (gained.get(id) ?? 0) + state.matrix[index % 3][HERO_ORDER.indexOf(id)] * multiplier);
+  }));
   gained.forEach((xp, id) => {
-    const hero = heroes.find((candidate) => candidate.id === id);
+    const hero = state.heroes.find((candidate) => candidate.id === id);
     if (hero) hero.xp += xp;
-    else if (heroes.length < PEDESTAL_POSITIONS.length) {
-      heroes.push({ id, level: 1, xp, slot: heroes.length, perks: [] });
-      recruited += 1;
-    }
+    else if (state.heroes.length < PEDESTAL_POSITIONS.length) state.heroes.push({ id, level: 1, xp, slot: state.heroes.length, perks: [] });
   });
-  return recruited;
+  return { lineCount: wins.length, levelsGained: processLevels(state, strategy, rng) };
 }
 
-type Upgrade = { additions: Array<{ reel: number; hero: number; amount: number }> };
-
-function makeUpgradePool(rng: Rng): Upgrade[] {
+type Upgrade = { additions: Array<{ reel: number; hero: number; amount: number }>; nudge?: boolean };
+function chooseSlotUpgrade(state: RunState, strategy: Strategy, rng: Rng) {
   const reel = Math.floor(rng() * 3);
   const secondReel = (reel + 1 + Math.floor(rng() * 2)) % 3;
   const hero = Math.floor(rng() * HERO_ORDER.length);
   const secondHero = (hero + 1 + Math.floor(rng() * (HERO_ORDER.length - 1))) % HERO_ORDER.length;
-  return [
+  const pool: Upgrade[] = [
     { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.focusedXp }] },
     { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.linkedXp }, { reel: secondReel, hero, amount: GAME_CONFIG.slotUpgrades.linkedXp }] },
     { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.pairedXp }, { reel, hero: secondHero, amount: GAME_CONFIG.slotUpgrades.pairedXp }] },
     { additions: HERO_ORDER.map((_, heroIndex) => ({ reel, hero: heroIndex, amount: GAME_CONFIG.slotUpgrades.wholeReelXp })) },
-    { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.wildXp }] },
+    { additions: [], nudge: true },
   ];
+  const offered = shuffle(pool, rng).slice(0, 3);
+  const value = (upgrade: Upgrade) => upgrade.nudge ? 4 : upgrade.additions.reduce((sum, addition) => sum + addition.amount * heroPriority(HERO_ORDER[addition.hero], state.heroes), 0);
+  const best = [...offered].sort((a, b) => value(b) - value(a))[0];
+  const selected = strategy === 'reasonable' && rng() < REASONABLE_DECISION_ACCURACY ? best : pick(offered, rng);
+  selected.additions.forEach(({ reel: targetReel, hero: targetHero, amount }) => { state.matrix[targetReel][targetHero] += amount; });
+  if (selected.nudge) state.nudges += 1;
+  state.slotUpgrades += 1;
 }
 
-function chooseUpgrade(matrix: number[][], heroes: HeroState[], strategy: Strategy, rng: Rng, carryIds: HeroId[]) {
-  const offered = shuffle(makeUpgradePool(rng), rng).slice(0, 3);
-  const ranked = [...offered].sort((a, b) => {
-    const value = (upgrade: Upgrade) => upgrade.additions.reduce((sum, addition) => {
-      const id = HERO_ORDER[addition.hero];
-      return sum + addition.amount * heroPriority(id, heroes, carryIds);
-    }, 0);
-    return value(b) - value(a);
+function processSlotXp(state: RunState, strategy: Strategy, rng: Rng) {
+  let required = GAME_CONFIG.slotProgression.xpForLevel(state.slotLevel);
+  while (state.slotXp >= required) {
+    state.slotXp -= required; state.slotLevel += 1;
+    chooseSlotUpgrade(state, strategy, rng);
+    required = GAME_CONFIG.slotProgression.xpForLevel(state.slotLevel);
+  }
+}
+
+function completeSlotAction(state: RunState, action: PendingSlotAction, strategy: Strategy, rng: Rng): PendingSlotAction | null {
+  if (action.kind === 'feedback') return null;
+  if (action.kind === 'spin') {
+    const previous = state.grid;
+    const result = makeGrid(state.matrix, rng, state.openingSpins < GAME_CONFIG.stage.guaranteedWinningOpeningSpins);
+    state.openingSpins += 1; state.spins -= 1; state.spinsSpent += 1; state.grid = result;
+    const presentation = awardGrid(state, result, strategy, rng);
+    const feedbackMs = presentation.lineCount * (
+      GAME_CONFIG.feedback.lineRevealMs
+      + GAME_CONFIG.feedback.rewardDelayMs
+      + GAME_CONFIG.feedback.rewardFlightMs
+      + GAME_CONFIG.feedback.heroXpFillMs
+    ) + presentation.levelsGained * GAME_CONFIG.feedback.heroReadyHoldMs;
+    if (state.nudges <= 0) return feedbackMs ? { kind: 'feedback', readyAt: action.readyAt + feedbackMs } : null;
+    const scores = [0, 1, 2].map((reel) => nudgeScore(result, reel, state.matrix, state.heroes));
+    const bestReel = scores.indexOf(Math.max(...scores));
+    const shouldNudge = strategy === 'reasonable' ? scores[bestReel] >= 4.2 : rng() < 0.22;
+    if (shouldNudge) return { kind: 'nudge', reel: bestReel, readyAt: action.readyAt + feedbackMs + GAME_CONFIG.slot.nudgeDurationMs };
+    void previous;
+    return feedbackMs ? { kind: 'feedback', readyAt: action.readyAt + feedbackMs } : null;
+  }
+  const previous = state.grid;
+  const result = nudgeGrid(previous, action.reel!, rng);
+  state.grid = result; state.nudges -= 1; state.nudgesSpent += 1;
+  const presentation = awardGrid(state, result, strategy, rng, previous);
+  const feedbackMs = presentation.lineCount * (
+    GAME_CONFIG.feedback.lineRevealMs
+    + GAME_CONFIG.feedback.rewardDelayMs
+    + GAME_CONFIG.feedback.rewardFlightMs
+    + GAME_CONFIG.feedback.heroXpFillMs
+  ) + presentation.levelsGained * GAME_CONFIG.feedback.heroReadyHoldMs;
+  return feedbackMs ? { kind: 'feedback', readyAt: action.readyAt + feedbackMs } : null;
+}
+
+function waveQueue(wave: number, rng: Rng) {
+  const config = GAME_CONFIG.waves[wave - 1];
+  const types = config.bossFirst
+    ? [...Array(config.boss).fill('boss'), ...Array(config.minion).fill('minion'), ...Array(config.elite).fill('elite')]
+    : [...Array(config.minion).fill('minion'), ...Array(config.elite).fill('elite'), ...Array(config.boss).fill('boss')];
+  const rewards = shuffle<CombatReward>([
+    ...Array<CombatReward>(GAME_CONFIG.stage.spinsDroppedPerWave).fill('spin'),
+    ...Array<CombatReward>(GAME_CONFIG.stage.nudgesDroppedPerWave(wave)).fill('nudge'),
+  ], rng);
+  const rewardOrder: Array<CombatReward | undefined> = Array(types.length).fill(undefined);
+  const eligible = types.map((type, index) => ({ type, index })).filter(({ type }) => type !== 'boss');
+  const earlyPool = eligible.slice(0, Math.max(rewards.length, Math.ceil(eligible.length * .7)));
+  rewards.forEach((reward, index) => {
+    const target = earlyPool[Math.min(earlyPool.length - 1, Math.floor(index * earlyPool.length / rewards.length))];
+    if (target) rewardOrder[target.index] = reward;
   });
-  const selected = strategy === 'random' || rng() > SMART_DECISION_ACCURACY ? pick(offered, rng) : ranked[0];
-  selected.additions.forEach(({ reel, hero, amount }) => { matrix[reel][hero] += amount; });
+  return types.map((type, index) => ({ type: type as SimEnemy['type'], reward: rewardOrder[index] }));
 }
 
-function arrangeHeroes(heroes: HeroState[], strategy: Strategy, rng: Rng) {
-  const slots = PEDESTAL_POSITIONS.map((_, index) => index);
-  const orderedHeroes = [...heroes].sort((a, b) => getHeroStats(a).range - getHeroStats(b).range);
-  const frontToBack = [...slots].sort((a, b) => PEDESTAL_POSITIONS[b].y - PEDESTAL_POSITIONS[a].y);
-  orderedHeroes.forEach((hero, index) => { hero.slot = frontToBack[index]; });
-}
-
-function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng) {
+function fightWave(wave: number, state: RunState, strategy: Strategy, rng: Rng): WaveResult {
   const tickMs = GAME_CONFIG.combat.tickMs;
   const waveConfig = GAME_CONFIG.waves[wave - 1];
-  const minions = Array<SimEnemy['type']>(waveConfig.minion).fill('minion');
-  const elites = Array<SimEnemy['type']>(waveConfig.elite).fill('elite');
-  const bosses = Array<SimEnemy['type']>(waveConfig.boss).fill('boss');
-  const queue = waveConfig.bossFirst ? [...bosses, ...minions, ...elites] : [...minions, ...elites, ...bosses];
+  const queue = waveQueue(wave, rng);
   const enemies: SimEnemy[] = [];
   const cooldowns: Record<string, number> = {};
-  const damageByHero = blankHeroRecord();
-  const shotsByHero = blankHeroRecord();
-  let hp = startHp;
   let time = 0;
   let nextSpawn = GAME_CONFIG.combat.spawnIntervalMs;
+  let slotAction: PendingSlotAction | null = null;
   let leaks = 0;
-  let closestEnemyY = 101;
-  let closestBossY = 101;
+  let closestEnemyY = GAME_CONFIG.combat.spawnY;
   let totalKillY = 0;
   let kills = 0;
-  const damage = (enemy: SimEnemy, amount: number, heroId?: HeroId) => {
-    const wasAlive = enemy.hp > 0;
-    const dealt = Math.min(enemy.hp, amount);
+  const hpAtStart = state.hp;
+  const spinsAtStart = state.spinsSpent;
+  const nudgesAtStart = state.nudgesSpent;
+  const spinsEarnedAtStart = state.spinsEarned;
+  const nudgesEarnedAtStart = state.nudgesEarned;
+
+  const grantKill = (enemy: SimEnemy) => {
+    totalKillY += enemy.y; kills += 1;
+    state.slotXp += GAME_CONFIG.slotProgression.killXp[enemy.type];
+    if (enemy.reward === 'spin') { state.spins += 1; state.spinsEarned += 1; }
+    if (enemy.reward === 'nudge') { state.nudges += 1; state.nudgesEarned += 1; }
+    processSlotXp(state, strategy, rng);
+  };
+  const damage = (enemy: SimEnemy, amount: number) => {
+    const alive = enemy.hp > 0;
     enemy.hp -= amount;
-    if (heroId) damageByHero[heroId] += dealt;
-    if (wasAlive && enemy.hp <= 0) {
-      totalKillY += enemy.y;
-      kills += 1;
-    }
+    if (alive && enemy.hp <= 0) grantKill(enemy);
   };
 
-  while ((queue.length > 0 || enemies.length > 0) && hp > 0 && time < 180_000) {
+  while ((queue.length > 0 || enemies.length > 0) && state.hp > 0 && time < 180_000) {
     time += tickMs;
     while (queue.length > 0 && time >= nextSpawn) {
-      const type = queue.shift()!;
-      const config = GAME_CONFIG.enemies[type];
-      const hp = config.hp * (waveConfig.hpMultiplier?.[type] ?? 1);
-      const damage = config.damage * (waveConfig.damageMultiplier?.[type] ?? 1);
-      const speed = config.speed * (waveConfig.speedMultiplier?.[type] ?? 1);
-      enemies.push({ type, x: 42 + rng() * 16, y: 96 + rng() * 5, hp, speed, damage });
+      const entry = queue.shift()!;
+      const config = GAME_CONFIG.enemies[entry.type];
+      enemies.push({
+        type: entry.type, reward: entry.reward, x: 13 + rng() * 74, y: GAME_CONFIG.combat.spawnY + rng() * 4,
+        hp: config.hp * (waveConfig.hpMultiplier?.[entry.type] ?? 1),
+        damage: config.damage * (waveConfig.damageMultiplier?.[entry.type] ?? 1),
+        speed: config.speed * (waveConfig.speedMultiplier?.[entry.type] ?? 1),
+      });
       nextSpawn += GAME_CONFIG.combat.spawnIntervalMs;
     }
-    enemies.forEach((enemy) => {
-      if (!enemy.isSieging) enemy.y -= enemy.speed * tickMs / 1000;
-    });
-    enemies.forEach((enemy) => {
-      closestEnemyY = Math.min(closestEnemyY, enemy.y);
-      if (enemy.type === 'boss') closestBossY = Math.min(closestBossY, enemy.y);
-    });
+
+    if (!slotAction && state.spins > 0) slotAction = { kind: 'spin', readyAt: time + GAME_CONFIG.slot.spinDurationMs };
+    while (slotAction && time >= slotAction.readyAt) slotAction = completeSlotAction(state, slotAction, strategy, rng);
+
+    enemies.forEach((enemy) => { if (!enemy.isSieging) enemy.y += enemy.speed * tickMs / 1000; });
+    enemies.forEach((enemy) => { if (enemy.hp > 0) closestEnemyY = Math.max(closestEnemyY, enemy.y); });
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
-      if (enemies[index].y <= GAME_CONFIG.combat.baseY) {
-        const enemy = enemies[index];
-        if (enemy.type === 'boss') {
-          enemy.y = GAME_CONFIG.combat.baseY;
-          if (!enemy.isSieging) {
-            enemy.isSieging = true;
-            enemy.nextBaseAttackAt = time + GAME_CONFIG.combat.bossSiege.firstAttackDelayMs;
-          } else if (time >= (enemy.nextBaseAttackAt ?? time)) {
-            hp -= GAME_CONFIG.combat.bossSiege.damage;
-            leaks += 1;
-            enemy.nextBaseAttackAt = time + GAME_CONFIG.combat.bossSiege.attackIntervalMs;
-          }
-        } else {
-          hp -= enemy.damage;
-          leaks += 1;
-          enemies.splice(index, 1);
+      const enemy = enemies[index];
+      if (enemy.hp <= 0) { enemies.splice(index, 1); continue; }
+      if (enemy.y < GAME_CONFIG.combat.baseY) continue;
+      if (enemy.type === 'boss') {
+        enemy.y = GAME_CONFIG.combat.baseY;
+        if (!enemy.isSieging) { enemy.isSieging = true; enemy.nextBaseAttackAt = time + GAME_CONFIG.combat.bossSiege.firstAttackDelayMs; }
+        else if (time >= (enemy.nextBaseAttackAt ?? time)) {
+          state.hp -= GAME_CONFIG.combat.bossSiege.damage; leaks += 1;
+          enemy.nextBaseAttackAt = time + GAME_CONFIG.combat.bossSiege.attackIntervalMs;
         }
+      } else {
+        state.hp -= enemy.damage; leaks += 1; enemies.splice(index, 1);
       }
     }
+
     const live = () => enemies.filter((enemy) => enemy.hp > 0);
-    for (const hero of heroes) {
+    for (const hero of state.heroes) {
       if ((cooldowns[hero.id] ?? 0) > time) continue;
-      const stats = getHeroStats(hero);
-      const from = PEDESTAL_POSITIONS[hero.slot];
-      const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => a.y - b.y);
-      const target = targets[0];
-      if (!target) continue;
+      const stats = getHeroStats(hero); const from = PEDESTAL_POSITIONS[hero.slot];
+      const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => b.y - a.y);
+      const target = targets[0]; if (!target) continue;
       cooldowns[hero.id] = time + stats.attackIntervalMs;
-      shotsByHero[hero.id] += 1;
-      const ability = HEROES[hero.id].ability;
-      getAbilityTargets(ability, stats, from, target, targets, live()).forEach((enemy) => damage(enemy, stats.damage, hero.id));
-    }
-    if ((cooldowns.king ?? 0) <= time) {
-      const from = { x: 50, y: 13 };
-      const target = live().filter((enemy) => combatDistance(from, enemy) <= GAME_CONFIG.base.range).sort((a, b) => a.y - b.y)[0];
-      if (target) {
-        damage(target, GAME_CONFIG.base.damage);
-        cooldowns.king = time + GAME_CONFIG.base.attackIntervalMs;
-      }
+      getAbilityTargets(HEROES[hero.id].ability, stats, from, target, targets, live()).forEach((enemy) => damage(enemy, stats.damage));
     }
     for (let index = enemies.length - 1; index >= 0; index -= 1) if (enemies[index].hp <= 0) enemies.splice(index, 1);
   }
-  const progress = (y: number) => Math.max(0, Math.min(1, (100 - y) / (100 - GAME_CONFIG.combat.baseY)));
+
+  if (slotAction) completeSlotAction(state, slotAction, strategy, rng);
+  state.hp = Math.max(0, state.hp);
+  const progress = (y: number) => Math.max(0, Math.min(1, (y - GAME_CONFIG.combat.spawnY) / (GAME_CONFIG.combat.baseY - GAME_CONFIG.combat.spawnY)));
   return {
-    hp: Math.max(0, hp),
-    hpLost: Math.max(0, startHp - Math.max(0, hp)),
-    leaks,
-    deepestProgress: progress(closestEnemyY),
-    averageKillY: kills > 0 ? totalKillY / kills : 100,
+    hpLost: Math.max(0, hpAtStart - state.hp), leaks,
+    deepestProgress: progress(closestEnemyY), averageKillY: kills ? totalKillY / kills : GAME_CONFIG.combat.spawnY,
     durationMs: time,
-    bossDeepestProgress: closestBossY < 101 ? progress(closestBossY) : null,
-    damageByHero,
-    shotsByHero,
+    spinsSpent: state.spinsSpent - spinsAtStart, nudgesSpent: state.nudgesSpent - nudgesAtStart,
+    spinsEarned: state.spinsEarned - spinsEarnedAtStart, nudgesEarned: state.nudgesEarned - nudgesEarnedAtStart,
   };
 }
 
-function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): RunResult {
+function simulateRun(strategy: Strategy, rng: Rng): RunResult {
   const matrix = initialMatrix();
-  const heroes: HeroState[] = [];
-  const heroDamage = blankHeroRecord();
-  const heroShots = blankHeroRecord();
+  const state: RunState = {
+    hp: GAME_CONFIG.base.maxHp, heroes: [], matrix, grid: makeGrid(matrix, rng, false),
+    spins: GAME_CONFIG.stage.startingSpins, nudges: GAME_CONFIG.stage.startingNudges,
+    slotLevel: 1, slotXp: 0, openingSpins: 0, levelUps: 0, slotUpgrades: 0,
+    spinsSpent: 0, nudgesSpent: 0, spinsEarned: 0, nudgesEarned: 0,
+  };
   const waves: WaveResult[] = [];
-  let hp = GAME_CONFIG.base.maxHp;
-  let openingSpins = 0;
-  let recruited = 0;
-  let levelUps = 0;
   let deathWave: number | null = null;
-
   for (let wave = 1; wave <= GAME_CONFIG.stage.totalWaves; wave += 1) {
-    const randomNudgeSpin = Math.floor(rng() * GAME_CONFIG.stage.preparationSpins);
-    let usedNudge = false;
-    for (let spin = 0; spin < GAME_CONFIG.stage.preparationSpins; spin += 1) {
-      const grid = makeGrid(matrix, rng, openingSpins < GAME_CONFIG.stage.guaranteedWinningOpeningSpins);
-      openingSpins += 1;
-      recruited += awardGrid(grid, matrix, heroes);
-      levelUps += processLevels(heroes, strategy, rng);
-      const shouldNudge = strategy === 'random'
-        ? spin === randomNudgeSpin
-        : spin === GAME_CONFIG.stage.preparationSpins - 1 || Math.max(...[0, 1, 2].map((reel) => nudgeScore(grid, reel, matrix, heroes, carryIds))) >= 4.5;
-      if (!usedNudge && shouldNudge) {
-        const reel = strategy === 'random'
-          ? Math.floor(rng() * 3)
-          : [...[0, 1, 2]].sort((a, b) => nudgeScore(grid, b, matrix, heroes, carryIds) - nudgeScore(grid, a, matrix, heroes, carryIds))[0];
-        const nudged = nudgeGrid(grid, reel, rng);
-        recruited += awardGrid(nudged, matrix, heroes, grid);
-        levelUps += processLevels(heroes, strategy, rng);
-        usedNudge = true;
-      }
-    }
-    arrangeHeroes(heroes, strategy, rng);
-    const combat = fightWave(wave, heroes, hp, rng);
-    hp = combat.hp;
-    waves.push({
-      hpLost: combat.hpLost,
-      leaks: combat.leaks,
-      deepestProgress: combat.deepestProgress,
-      averageKillY: combat.averageKillY,
-      durationMs: combat.durationMs,
-      bossDeepestProgress: combat.bossDeepestProgress,
-    });
-    HERO_ORDER.forEach((id) => {
-      heroDamage[id] += combat.damageByHero[id];
-      heroShots[id] += combat.shotsByHero[id];
-    });
-    if (hp <= 0) { deathWave = wave; break; }
-    if (wave < GAME_CONFIG.stage.totalWaves) chooseUpgrade(matrix, heroes, strategy, rng, carryIds);
+    waves.push(fightWave(wave, state, strategy, rng));
+    if (state.hp <= 0) { deathWave = wave; break; }
   }
-
   return {
-    won: hp > 0 && deathWave === null,
-    flawless: hp === GAME_CONFIG.base.maxHp,
-    deathWave,
-    hp,
-    levels: HERO_ORDER.map((id) => heroes.find((hero) => hero.id === id)?.level ?? 0),
-    levelUps,
-    recruited,
-    heroDamage,
-    heroShots,
-    waves,
+    won: state.hp > 0 && deathWave === null, deathWave, hp: state.hp,
+    levels: HERO_ORDER.map((id) => state.heroes.find((hero) => hero.id === id)?.level ?? 0),
+    levelUps: state.levelUps, slotLevel: state.slotLevel, recruited: state.heroes.length,
+    spinsRemaining: state.spins, nudgesRemaining: state.nudges, waves,
   };
 }
 
-function summarize(strategy: Strategy, baseSeed: number, carryIds: HeroId[] = []) {
-  const results = Array.from({ length: runs }, (_, index) => simulateRun(strategy, mulberry32(baseSeed + index * 104_729), carryIds));
+function summarize(strategy: Strategy, baseSeed: number) {
+  const results = Array.from({ length: runs }, (_, index) => simulateRun(strategy, mulberry32(baseSeed + index * 104_729)));
   const wins = results.filter((result) => result.won);
-  const finalists = results.filter((result) => result.waves.length === GAME_CONFIG.stage.totalWaves);
-  const highCarryResults = carryIds.length === 0 ? [] : results.filter((result) => carryIds.some((id) => result.levels[HERO_ORDER.indexOf(id)] >= 6));
-  const deathCounts = Object.fromEntries(Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, index) => [index + 1, 0]));
-  results.forEach((result) => { if (result.deathWave) deathCounts[result.deathWave] += 1; });
   const avg = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
-  const heroDamageTotals = blankHeroRecord();
-  const heroShotTotals = blankHeroRecord();
-  results.forEach((result) => HERO_ORDER.forEach((id) => {
-    heroDamageTotals[id] += result.heroDamage[id];
-    heroShotTotals[id] += result.heroShots[id];
-  }));
-  const totalHeroDamage = Object.values(heroDamageTotals).reduce((sum, value) => sum + value, 0);
-  const reachedWaveValues = (wave: number, select: (result: WaveResult) => number) => results
-    .filter((result) => result.waves[wave] !== undefined)
-    .map((result) => select(result.waves[wave]));
+  const reached = (wave: number, select: (result: WaveResult) => number) => results.filter((result) => result.waves[wave]).map((result) => select(result.waves[wave]));
   return {
-    strategy: carryIds.length ? `smart-${carryIds.join('+')}-carry` : strategy,
-    runs,
+    strategy, runs,
     winRate: avg(results.map((result) => Number(result.won))),
-    flawlessAmongWins: avg(wins.map((result) => Number(result.flawless))),
     avgEndingHpAmongWins: avg(wins.map((result) => result.hp)),
-    deathRateByWave: Object.fromEntries(Object.entries(deathCounts).map(([wave, count]) => [wave, count / runs])),
-    avgHeroLevel: avg(results.flatMap((result) => result.levels.filter((level) => level > 0))),
-    avgFinalistHeroLevel: avg(finalists.flatMap((result) => result.levels.filter((level) => level > 0))),
-    avgFinalistCarryLevels: Object.fromEntries(carryIds.map((id) => [id, avg(finalists.map((result) => result.levels[HERO_ORDER.indexOf(id)]))])),
-    maxHeroLevel: Math.max(...results.flatMap((result) => result.levels)),
-    runsWithHeroAboveLevelSix: avg(results.map((result) => Number(result.levels.some((level) => level > 6)))),
+    deathRateByWave: Object.fromEntries(Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, index) => [index + 1, avg(results.map((result) => Number(result.deathWave === index + 1)))])),
+    baseDamageChanceByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => Number(result.hpLost > 0)))),
+    avgHpLostByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => result.hpLost))),
+    avgDeepestProgressByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => result.deepestProgress))),
+    avgSpinsSpentByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => result.spinsSpent))),
+    avgNudgesSpentByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => result.nudgesSpent))),
+    avgSpinsEarnedByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => result.spinsEarned))),
+    avgNudgesEarnedByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reached(wave, (result) => result.nudgesEarned))),
+    avgHeroLevel: avg(results.flatMap((result) => result.levels.filter(Boolean))),
     avgLevelUps: avg(results.map((result) => result.levelUps)),
-    avgFinalistLevelUps: avg(finalists.map((result) => result.levelUps)),
+    avgSlotLevel: avg(results.map((result) => result.slotLevel)),
     avgRecruited: avg(results.map((result) => result.recruited)),
-    avgHpLostByWaveAmongReached: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.hpLost))),
-    baseDamageChanceByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => Number(result.hpLost > 0)))),
-    avgLeaksByWaveAmongReached: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.leaks))),
-    avgDeepestProgressByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.deepestProgress))),
-    avgKillYByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.averageKillY))),
-    avgDurationSecondsByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.durationMs)) / 1000),
-    avgBossDeepestProgress: avg(results.flatMap((result) => result.waves[9]?.bossDeepestProgress ?? [])),
-    highCarryRunShare: highCarryResults.length / results.length,
-    highCarryWinRate: avg(highCarryResults.map((result) => Number(result.won))),
-    highCarryWaveTenHpLost: avg(highCarryResults.flatMap((result) => result.waves[9]?.hpLost ?? [])),
-    highCarryBossDeepestProgress: avg(highCarryResults.flatMap((result) => result.waves[9]?.bossDeepestProgress ?? [])),
-    heroDamageShare: Object.fromEntries(HERO_ORDER.map((id) => [id, heroDamageTotals[id] / Math.max(1, totalHeroDamage)])),
-    heroShotsPerRun: Object.fromEntries(HERO_ORDER.map((id) => [id, heroShotTotals[id] / runs])),
+    avgSpinsRemaining: avg(results.map((result) => result.spinsRemaining)),
+    avgNudgesRemaining: avg(results.map((result) => result.nudgesRemaining)),
   };
 }
-
-const carryProfiles: HeroId[][] = [
-  ...HERO_ORDER.map((id) => [id]),
-  ...HERO_ORDER.flatMap((first, firstIndex) => HERO_ORDER.slice(firstIndex + 1).map((second) => [first, second])),
-];
-const summaries = [
-  summarize('random', seed),
-  ...carryProfiles.map((carryIds, index) => summarize('smart', seed + (index + 1) * 9_999_991, carryIds)),
-];
-const smartSummaries = summaries.slice(1);
-const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
 
 console.log(JSON.stringify({
   configWaves: GAME_CONFIG.stage.totalWaves,
   seed,
-  aggregate: {
-    randomWinRate: summaries[0].winRate,
-    randomFlawlessAmongWins: summaries[0].flawlessAmongWins,
-    smartWinRateMean: mean(smartSummaries.map((summary) => summary.winRate)),
-    smartWinRateRange: [
-      Math.min(...smartSummaries.map((summary) => summary.winRate)),
-      Math.max(...smartSummaries.map((summary) => summary.winRate)),
-    ],
-    smartFlawlessAmongWinsMean: mean(smartSummaries.map((summary) => summary.flawlessAmongWins)),
-    highCarryWinRateMean: mean(smartSummaries.map((summary) => summary.highCarryWinRate)),
-  },
-  summaries,
+  summaries: [summarize('random', seed), summarize('reasonable', seed + 9_999_991)],
 }, null, 2));

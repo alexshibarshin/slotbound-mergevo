@@ -10,11 +10,12 @@ const getXpBackground = (xp: number) => (
     ?? '#fff'
 );
 
-export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel, nudgingDirection, pendingGrid, winningCells, winningLines, noMatch, comboMultiplier = 1, onSpin, onNudge }: {
+export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, locked = false, nudgingReel, nudgingDirection, pendingGrid, winningCells, winningLines, noMatch, comboMultiplier = 1, onSpin, onNudge }: {
   grid: SlotCell[];
   spinsLeft: number;
   nudgesLeft: number;
   spinning: boolean;
+  locked?: boolean;
   nudgingReel: number | null;
   nudgingDirection: NudgeDirection | null;
   pendingGrid: SlotCell[] | null;
@@ -37,7 +38,7 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
     ? [...cellsForReel(reel), pendingGrid?.[reel + 6] ?? grid[reel + 6]]
     : [pendingGrid?.[reel] ?? grid[reel], ...cellsForReel(reel)];
   const fullSpin = spinning && nudgingReel === null;
-  const canNudge = nudgesLeft > 0 && !spinning;
+  const canNudge = nudgesLeft > 0 && !spinning && !locked;
 
   const beginSwipe = (reel: number, event: ReactPointerEvent<HTMLDivElement>) => {
     if (!canNudge || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -117,7 +118,7 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
           })}
         </svg>
       )}
-      {winningLines.length > 0 && <div className="slot-win-flash" />}
+      {winningLines.length > 0 && <div className="slot-win-flash" key={winningLines.map((line) => line.join('-')).join('|')} />}
       {comboMultiplier > 1 && <div className="combo-slot-aura"><i /><i /><i /></div>}
       {noMatch && <div className="no-match-feedback"><i /><span>NO MATCH</span><small>TRY THE NEXT SPIN</small></div>}
       {[0, 1, 2].map((reel) => (
@@ -126,11 +127,11 @@ export function SlotMachine({ grid, spinsLeft, nudgesLeft, spinning, nudgingReel
           className={`nudge-button ${nudgingReel === reel ? 'is-nudging' : ''}`}
           style={{ left: `${19.5 + reel * 17.8}%` }}
           onClick={() => onNudge(reel, 'down')}
-          disabled={nudgesLeft === 0 || spinning}
+          disabled={nudgesLeft === 0 || spinning || locked}
           aria-label={`Nudge reel ${reel + 1} down`}
         ><span className="nudge-chevron" /><small>NUDGE ×{nudgesLeft}</small></button>
       ))}
-      <button className="lever-hit" onClick={onSpin} disabled={spinsLeft === 0 || spinning} aria-label="Spin reels">
+      <button className="lever-hit" onClick={onSpin} disabled={spinsLeft === 0 || spinning || locked} aria-label="Spin reels">
         <span className="lever-track" />
         <span className="lever-arm"><i /><b /></span>
       </button>

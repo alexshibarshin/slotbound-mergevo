@@ -9,8 +9,8 @@ export function LevelUpModal({ game }: { game: GameController }) {
   if (!game.levelHero) return null;
   const hero = game.levelHero;
   return (
-    <div className="modal-backdrop" onClick={game.closeLevelUp}>
-      <section className="level-modal" onClick={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop">
+      <section className="level-modal">
         <div className="ribbon ribbon-green"><AtlasSprite atlas="ui" index={1} /><strong>{blessingTitle(HEROES[hero.id].name)}</strong></div>
         <p>CHOOSE AN ABILITY</p>
         <div className="perk-row">
@@ -27,11 +27,11 @@ export function LevelUpModal({ game }: { game: GameController }) {
 }
 
 export function SlotUpgradeModal({ game }: { game: GameController }) {
-  if (game.phase !== 'slotUpgrade') return null;
+  if (!game.slotUpgradeChoices.length) return null;
   return (
     <div className="modal-backdrop slot-upgrade-backdrop">
       <section className="slot-upgrade-modal">
-        <div className="ribbon ribbon-blue"><AtlasSprite atlas="ui" index={0} /><strong>REEL UPGRADE</strong></div>
+        <div className="ribbon ribbon-blue"><AtlasSprite atlas="ui" index={0} /><strong>SLOT LEVEL {game.slotLevel + 1}</strong></div>
         <div className="upgrade-slot-preview">
           <ReelUpgradePreview xpByReel={game.xpByReel} />
         </div>
@@ -59,7 +59,7 @@ export function SlotUpgradeModal({ game }: { game: GameController }) {
 
 function SlotUpgradeDescription({ upgrade }: { upgrade: SlotUpgrade }) {
   if (upgrade.nudgeBonus) {
-    return <small className="upgrade-description nudge-upgrade-description">+1 Nudge per wave</small>;
+    return <small className="upgrade-description nudge-upgrade-description">+1 Nudge now</small>;
   }
 
   const reelLabel = upgrade.affectedReels.length === 1 ? 'Reel' : 'Reels';

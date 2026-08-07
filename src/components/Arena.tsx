@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { GAME_CONFIG, PEDESTAL_POSITIONS } from '../config/gameConfig';
 import type { GameController } from '../hooks/useGame';
 import type { ComboFeedback, HeroId } from '../types/game';
@@ -9,66 +8,60 @@ import { Hud } from './Hud';
 import { SlotMachine } from './SlotMachine';
 
 export function Arena({ game }: { game: GameController }) {
-  const [dragState, setDragState] = useState<{ heroId: HeroId; overSlot: number | null } | null>(null);
-  const preparing = game.phase === 'preparation';
-  const fighting = game.phase === 'combat';
-
   return (
-    <main className={`game-screen phase-${game.phase} ${game.winningLines.length ? 'slot-celebrating' : ''} ${game.comboFeedback ? `combo-celebrating combo-x${game.comboFeedback.multiplier}` : ''} ${dragState ? 'is-dragging' : ''}`}>
-      <img className="arena-bg" src="/assets/arena.png" alt="" />
-      <Hud wave={game.wave} hp={game.baseHp} />
-      <div className={`king-on-throne ${game.baseHp < GAME_CONFIG.base.maxHp ? 'base-damaged' : ''}`} key={game.baseHp}><AtlasSprite atlas="king" index={0} /></div>
+    <main className={`game-screen phase-${game.phase} ${game.winningLines.length ? 'slot-celebrating' : ''} ${game.comboFeedback ? `combo-celebrating combo-x${game.comboFeedback.multiplier}` : ''} ${game.paused ? 'game-paused' : ''}`}>
+      <img className="arena-bg" src="/assets/arena-vertical.png" alt="" />
+      <Hud
+        wave={game.wave}
+        hp={game.baseHp}
+        slotLevel={game.slotLevel}
+        slotXp={game.slotXp}
+        slotXpRequired={game.slotXpRequired}
+        slotReady={game.slotReady}
+        spins={game.spinsLeft}
+        nudges={game.nudgesLeft}
+      />
+
+      <CombatLayer
+        wave={game.wave}
+        heroes={game.heroes}
+        paused={game.paused}
+        onBaseDamage={game.damageBase}
+        onEnemyDefeated={game.defeatEnemy}
+        onComplete={game.completeWave}
+      />
 
       {PEDESTAL_POSITIONS.map((_, slot) => (
         <HeroPedestal
           key={slot}
           slot={slot}
           hero={game.heroes.find((hero) => hero.slot === slot)}
-          onLevel={game.openLevelUp}
-          onMove={game.moveHero}
-          draggingHero={dragState?.heroId ?? null}
-          dropTarget={dragState?.overSlot === slot}
-          onDragChange={setDragState}
+          ready={game.heroes.some((hero) => hero.slot === slot && hero.id === game.heroReadyId)}
         />
       ))}
 
-      {fighting && (
-        <CombatLayer
-          wave={game.wave}
-          heroes={game.heroes}
-          draggingHero={dragState?.heroId ?? null}
-          onBaseDamage={game.damageBase}
-          onComplete={game.completeWave}
+      <div className="battle-slot-panel">
+        <SlotMachine
+          grid={game.grid}
+          spinsLeft={game.spinsLeft}
+          nudgesLeft={game.nudgesLeft}
+          spinning={game.spinning}
+          locked={game.resolvingRewards || Boolean(game.heroReadyId) || game.slotReady || game.paused}
+          nudgingReel={game.nudgingReel}
+          nudgingDirection={game.nudgingDirection}
+          pendingGrid={game.pendingGrid}
+          winningCells={game.winningCells}
+          winningLines={game.winningLines}
+          noMatch={game.noMatch}
+          comboMultiplier={game.comboFeedback?.multiplier ?? 1}
+          onSpin={game.spin}
+          onNudge={game.nudge}
         />
-      )}
-
-      {preparing && (
-        <div className="preparation-panel">
-          <SlotMachine
-            grid={game.grid}
-            spinsLeft={game.spinsLeft}
-            nudgesLeft={game.nudgesLeft}
-            spinning={game.spinning}
-            nudgingReel={game.nudgingReel}
-            nudgingDirection={game.nudgingDirection}
-            pendingGrid={game.pendingGrid}
-            winningCells={game.winningCells}
-            winningLines={game.winningLines}
-            noMatch={game.noMatch}
-            comboMultiplier={game.comboFeedback?.multiplier ?? 1}
-            onSpin={game.spin}
-            onNudge={game.nudge}
-          />
-          {game.spinsLeft === 0 && !game.spinning && (
-            <button className="battle-button" onClick={game.beginCombat}>BATTLE</button>
-          )}
-        </div>
-      )}
+      </div>
 
       {game.rewardFlights.map((flight) => <RewardStar key={flight.id} {...flight} />)}
       {game.comboFeedback && <ComboCelebration key={game.comboFeedback.id} combo={game.comboFeedback} />}
-
-      {game.phase === 'waveClear' && <WaveClear wave={game.wave} />}
+      {game.betweenWaves && <WaveClear wave={game.wave} />}
       <div className="safe-vignette" />
     </main>
   );
@@ -81,11 +74,11 @@ function ComboCelebration({ combo }: { combo: ComboFeedback }) {
       <div className="combo-screen-flash" />
       <div className="combo-rays" />
       <div className="combo-shockwave"><i /><i /><i /></div>
-      <div className="combo-firework firework-left">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--spark-angle': `${index * 30}deg`, '--spark-delay': `${.08 + index * .012}s` } as React.CSSProperties} />)}</div>
-      <div className="combo-firework firework-right">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--spark-angle': `${index * 30}deg`, '--spark-delay': `${.2 + index * .012}s` } as React.CSSProperties} />)}</div>
+      <div className="combo-firework firework-left">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--spark-angle': `${index * 30}deg`, '--spark-delay': `${.027 + index * .004}s` } as React.CSSProperties} />)}</div>
+      <div className="combo-firework firework-right">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--spark-angle': `${index * 30}deg`, '--spark-delay': `${.067 + index * .004}s` } as React.CSSProperties} />)}</div>
       <div className="combo-confetti">{Array.from({ length: 26 }, (_, index) => {
         const column = index % 13;
-        return <i key={index} style={{ '--piece-x': `${(column + .5) * 7.69}%`, '--piece-drift': `${(column - 6) * 2}vw`, '--piece-duration': `${1.05 + index * .025}s`, '--piece-delay': `${index * .018}s` } as React.CSSProperties} />;
+        return <i key={index} style={{ '--piece-x': `${(column + .5) * 7.69}%`, '--piece-drift': `${(column - 6) * 2}vw`, '--piece-duration': `${.35 + index * .008}s`, '--piece-delay': `${index * .006}s` } as React.CSSProperties} />;
       })}</div>
       <div className="combo-banner">
         <small>{mega ? 'MEGA JACKPOT' : 'DOUBLE JACKPOT'}</small>
@@ -99,11 +92,11 @@ function ComboCelebration({ combo }: { combo: ComboFeedback }) {
 
 function RewardStar({ heroId, xp, fromIndex, toSlot }: { heroId: HeroId; xp: number; fromIndex: number; toSlot: number }) {
   const target = PEDESTAL_POSITIONS[toSlot];
-  const sourceX = 19.2 + (fromIndex % 3 + .5) * 17.63;
-  const sourceY = 72.5 + (Math.floor(fromIndex / 3) + .5) * 6.3;
+  const sourceX = 34.5 + (fromIndex % 3 + .5) * 14.5;
+  const sourceY = 76.5 + (Math.floor(fromIndex / 3) + .5) * 4.8;
   return (
-    <div className="reward-flight" style={{ '--sx': `${sourceX}%`, '--sy': `${sourceY}%`, '--mx': `${(sourceX + target.x) / 2}%`, '--my': `${Math.min(sourceY, target.y) - 12}%`, '--tx': `${target.x}%`, '--ty': `${target.y}%`, '--hero-color': HERO_COLOR[heroId] } as React.CSSProperties}>
-      <span><b>{xp}</b></span><i /><i /><i />
+    <div className="reward-flight" style={{ '--sx': `${sourceX}%`, '--sy': `${sourceY}%`, '--mx': `${(sourceX + target.x) / 2}%`, '--my': `${Math.min(sourceY, target.y) - 7}%`, '--tx': `${target.x}%`, '--ty': `${target.y}%`, '--hero-color': HERO_COLOR[heroId] } as React.CSSProperties}>
+      <span><b>+{xp}<small>XP</small></b></span><i /><i /><i />
     </div>
   );
 }
@@ -115,7 +108,7 @@ function WaveClear({ wave }: { wave: number }) {
   return (
     <div className="wave-clear">
       <AtlasSprite atlas="ui" index={0} />
-      <div><strong>{final ? 'STAGE CLEAR!' : 'WAVE CLEAR!'}</strong><span>{final ? 'THE THRONE STANDS' : 'REEL UPGRADE READY'}</span></div>
+      <div><strong>{final ? 'STAGE CLEAR!' : `WAVE ${wave} CLEAR!`}</strong><span>{final ? 'THE GATE STANDS' : 'NEXT WAVE INCOMING'}</span></div>
     </div>
   );
 }
