@@ -67,6 +67,15 @@ export function Arena({ game }: { game: GameController }) {
 
       <Hud wave={game.wave} />
       {game.comboFeedback && <ComboCelebration key={game.comboFeedback.id} combo={game.comboFeedback} />}
+      {game.slotPerkFeedback.length > 0 && (
+        <div className="slot-perk-feedback-stack" role="status" aria-live="assertive">
+          {game.slotPerkFeedback.map((feedback, index) => (
+            <div className="slot-perk-feedback" key={feedback.id} style={{ '--feedback-index': index } as React.CSSProperties}>
+              <strong>{feedback.label}</strong>{feedback.multiplier && <b>×{feedback.multiplier}!</b>}
+            </div>
+          ))}
+        </div>
+      )}
       {game.phase === 'waveClear' && <WaveClear wave={game.wave} />}
       <div className="safe-vignette" />
     </main>
@@ -90,7 +99,6 @@ function ComboCelebration({ combo }: { combo: ComboFeedback }) {
         <small>{mega ? 'MEGA JACKPOT' : 'DOUBLE JACKPOT'}</small>
         <strong><span>COMBO</span><b>x{combo.multiplier}</b></strong>
         <em>{combo.lineCount} WINNING LINES!</em>
-        <p>ALL XP x{combo.multiplier} <b>+{combo.totalXp} XP</b></p>
       </div>
     </div>
   );

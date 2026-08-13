@@ -2,7 +2,7 @@ import { GAME_CONFIG, HEROES, HERO_ORDER, PEDESTAL_POSITIONS } from '../src/conf
 import { combatDistance, getAbilityTargets } from '../src/game/combat.ts';
 import { getComboMultiplier } from '../src/game/combo.ts';
 import { calculateHeroStats } from '../src/game/statsCore.ts';
-import type { HeroId, HeroPerk, HeroState } from '../src/types/game.ts';
+import type { HeroId, HeroPerk, HeroState, LegendarySlotPerkId } from '../src/types/game.ts';
 
 type Strategy = 'random' | 'smart';
 type Rng = () => number;
@@ -37,6 +37,14 @@ type RunResult = {
   heroDamage: Record<HeroId, number>;
   heroShots: Record<HeroId, number>;
   waves: WaveResult[];
+};
+
+type SimSlotState = {
+  legendary: LegendarySlotPerkId[];
+  nudgeUpgrades: number;
+  successfulSpinsThisWave: number;
+  perfectNudgeUsedThisWave: boolean;
+  trainingDayUsedThisWave: boolean;
 };
 
 const runs = Number.parseInt(process.argv[2] ?? '2000', 10);
@@ -108,22 +116,38 @@ function heroPriority(id: HeroId, heroes: HeroState[], carryIds: HeroId[] = []):
   return hero ? 0.55 : 0.7;
 }
 
-function nudgeScore(grid: HeroId[], reel: number, matrix: number[][], heroes: HeroState[], carryIds: HeroId[]): number {
+const hasLegendary = (state: SimSlotState, id: LegendarySlotPerkId) => state.legendary.includes(id);
+
+function lineMultiplier(lineIndex: number, winCount: number, source: 'spin' | 'nudge', state: SimSlotState): number {
+  let bonus = getComboMultiplier(winCount) - 1;
+  if (source === 'nudge' && hasLegendary(state, 'precision-training')) bonus += 1;
+  if (source === 'spin' && hasLegendary(state, 'rising-stars') && state.successfulSpinsThisWave >= 2) bonus += 1;
+  if (lineIndex <= 2 && hasLegendary(state, 'horizontal-fortune')) bonus += 1;
+  if (lineIndex >= 3 && lineIndex <= 5 && hasLegendary(state, 'vertical-fortune')) bonus += 1;
+  if (lineIndex >= 6 && hasLegendary(state, 'diagonal-fortune')) bonus += 2;
+  return 1 + bonus;
+}
+
+function gridValue(grid: HeroId[], matrix: number[][], heroes: HeroState[], carryIds: HeroId[], source: 'spin' | 'nudge', state: SimSlotState): number {
+  const wins = winningLines(grid);
+  return wins.reduce((sum, line) => {
+    const lineIndex = WINNING_LINES.indexOf(line);
+    const multiplier = lineMultiplier(lineIndex, wins.length, source, state);
+    return sum + line.reduce((lineSum, index) => {
+      const id = grid[index];
+      return lineSum + matrix[index % 3][HERO_ORDER.indexOf(id)] * heroPriority(id, heroes, carryIds) * multiplier;
+    }, 0);
+  }, 0);
+}
+
+function nudgeScore(grid: HeroId[], reel: number, matrix: number[][], heroes: HeroState[], carryIds: HeroId[], state: SimSlotState): number {
   let expected = 0;
-  const previousWinKeys = new Set(winningLines(grid).map((line) => `${line.join('-')}:${grid[line[0]]}`));
   for (const newHero of HERO_ORDER) {
     const next = [...grid];
     next[reel + 6] = next[reel + 3];
     next[reel + 3] = next[reel];
     next[reel] = newHero;
-    const wins = winningLines(next);
-    const rewardWins = wins.filter((line) => !previousWinKeys.has(`${line.join('-')}:${next[line[0]]}`));
-    const multiplier = getComboMultiplier(wins.length);
-    const reward = rewardWins.reduce((sum, line) => sum + line.reduce((lineSum, index) => {
-      const id = next[index];
-      return lineSum + matrix[index % 3][HERO_ORDER.indexOf(id)] * heroPriority(id, heroes, carryIds) * multiplier;
-    }, 0), 0);
-    expected += reward / HERO_ORDER.length;
+    expected += gridValue(next, matrix, heroes, carryIds, 'nudge', state) / HERO_ORDER.length;
   }
   return expected;
 }
@@ -166,18 +190,18 @@ function processLevels(heroes: HeroState[], strategy: Strategy, rng: Rng): numbe
   return levelUps;
 }
 
-function awardGrid(grid: HeroId[], matrix: number[][], heroes: HeroState[], previousGrid?: HeroId[]): number {
+function awardGrid(grid: HeroId[], matrix: number[][], heroes: HeroState[], source: 'spin' | 'nudge', state: SimSlotState): number {
   const gained = new Map<HeroId, number>();
-  const previousWinKeys = new Set((previousGrid ? winningLines(previousGrid) : []).map((line) => `${line.join('-')}:${previousGrid?.[line[0]]}`));
   const wins = winningLines(grid);
-  const rewardWins = wins
-    .filter((line) => !previousWinKeys.has(`${line.join('-')}:${grid[line[0]]}`));
-  const multiplier = getComboMultiplier(wins.length);
-  rewardWins
-    .forEach((line) => line.forEach((index) => {
+  if (source === 'spin' && wins.length) state.successfulSpinsThisWave += 1;
+  wins.forEach((line) => {
+    const lineIndex = WINNING_LINES.indexOf(line);
+    const multiplier = lineMultiplier(lineIndex, wins.length, source, state);
+    line.forEach((index) => {
       const id = grid[index];
       gained.set(id, (gained.get(id) ?? 0) + matrix[index % 3][HERO_ORDER.indexOf(id)] * multiplier);
-    }));
+    });
+  });
   let recruited = 0;
   gained.forEach((xp, id) => {
     const hero = heroes.find((candidate) => candidate.id === id);
@@ -187,36 +211,85 @@ function awardGrid(grid: HeroId[], matrix: number[][], heroes: HeroState[], prev
       recruited += 1;
     }
   });
+  if (source === 'spin' && wins.length && hasLegendary(state, 'training-day') && !state.trainingDayUsedThisWave) {
+    state.trainingDayUsedThisWave = true;
+    const matchedHeroes = new Set(wins.map((line) => grid[line[0]]));
+    matchedHeroes.forEach((id) => {
+      const heroIndex = HERO_ORDER.indexOf(id);
+      matrix.forEach((values) => { values[heroIndex] += 1; });
+    });
+  }
   return recruited;
 }
 
-type Upgrade = { additions: Array<{ reel: number; hero: number; amount: number }> };
+type CommonUpgrade = { additions: Array<{ reel: number; hero: number; amount: number }>; nudgeBonus: number };
 
-function makeUpgradePool(rng: Rng): Upgrade[] {
+function makeCommonUpgrade(rng: Rng, nudgeUpgrades: number): CommonUpgrade {
   const reel = Math.floor(rng() * 3);
-  const secondReel = (reel + 1 + Math.floor(rng() * 2)) % 3;
   const hero = Math.floor(rng() * HERO_ORDER.length);
-  const secondHero = (hero + 1 + Math.floor(rng() * (HERO_ORDER.length - 1))) % HERO_ORDER.length;
-  return [
-    { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.focusedXp }] },
-    { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.linkedXp }, { reel: secondReel, hero, amount: GAME_CONFIG.slotUpgrades.linkedXp }] },
-    { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.pairedXp }, { reel, hero: secondHero, amount: GAME_CONFIG.slotUpgrades.pairedXp }] },
-    { additions: HERO_ORDER.map((_, heroIndex) => ({ reel, hero: heroIndex, amount: GAME_CONFIG.slotUpgrades.wholeReelXp })) },
-    { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.wildXp }] },
+  const weights = GAME_CONFIG.slotUpgrades.commonFamilyWeights;
+  const families = [
+    { id: 'hero', weight: weights.hero },
+    { id: 'reel', weight: weights.reel },
+    { id: 'focused', weight: weights.focused },
+    ...(nudgeUpgrades < GAME_CONFIG.slotUpgrades.maxNudgeUpgrades ? [{ id: 'nudge', weight: weights.nudge }] : []),
   ];
+  let roll = rng() * families.reduce((sum, family) => sum + family.weight, 0);
+  const family = families.find((candidate) => ((roll -= candidate.weight) <= 0))?.id ?? families.at(-1)!.id;
+  if (family === 'hero') return { additions: [0, 1, 2].map((targetReel) => ({ reel: targetReel, hero, amount: GAME_CONFIG.slotUpgrades.heroXp })), nudgeBonus: 0 };
+  if (family === 'reel') return { additions: HERO_ORDER.map((_, targetHero) => ({ reel, hero: targetHero, amount: GAME_CONFIG.slotUpgrades.wholeReelXp })), nudgeBonus: 0 };
+  if (family === 'focused') return { additions: [{ reel, hero, amount: GAME_CONFIG.slotUpgrades.focusedXp }], nudgeBonus: 0 };
+  return { additions: [], nudgeBonus: 1 };
 }
 
-function chooseUpgrade(matrix: number[][], heroes: HeroState[], strategy: Strategy, rng: Rng, carryIds: HeroId[]) {
-  const offered = shuffle(makeUpgradePool(rng), rng).slice(0, 3);
+function chooseCommonUpgrade(matrix: number[][], heroes: HeroState[], strategy: Strategy, rng: Rng, carryIds: HeroId[], state: SimSlotState) {
+  const offered: CommonUpgrade[] = [];
+  const seenEffects = new Set<string>();
+  while (offered.length < 3) {
+    const upgrade = makeCommonUpgrade(rng, state.nudgeUpgrades);
+    const effectKey = JSON.stringify(upgrade);
+    if (seenEffects.has(effectKey)) continue;
+    seenEffects.add(effectKey);
+    offered.push(upgrade);
+  }
   const ranked = [...offered].sort((a, b) => {
-    const value = (upgrade: Upgrade) => upgrade.additions.reduce((sum, addition) => {
+    const value = (upgrade: CommonUpgrade) => upgrade.additions.reduce((sum, addition) => {
       const id = HERO_ORDER[addition.hero];
       return sum + addition.amount * heroPriority(id, heroes, carryIds);
-    }, 0);
+    }, 0) + upgrade.nudgeBonus * (state.legendary.includes('rewire') ? 15 : state.legendary.includes('precision-training') ? 13 : 8);
     return value(b) - value(a);
   });
   const selected = strategy === 'random' || rng() > SMART_DECISION_ACCURACY ? pick(offered, rng) : ranked[0];
   selected.additions.forEach(({ reel, hero, amount }) => { matrix[reel][hero] += amount; });
+  state.nudgeUpgrades = Math.min(GAME_CONFIG.slotUpgrades.maxNudgeUpgrades, state.nudgeUpgrades + selected.nudgeBonus);
+}
+
+const LEGENDARY_IDS: LegendarySlotPerkId[] = [
+  'perfect-nudge', 'overdrive', 'precision-training', 'rising-stars', 'training-day', 'rewire',
+  'horizontal-fortune', 'vertical-fortune', 'diagonal-fortune',
+];
+
+const legendaryConflict = (id: LegendarySlotPerkId, taken: LegendarySlotPerkId[]) => (
+  (id === 'rewire' && (taken.includes('perfect-nudge') || taken.includes('precision-training')))
+  || ((id === 'perfect-nudge' || id === 'precision-training') && taken.includes('rewire'))
+);
+
+function chooseLegendaryUpgrade(strategy: Strategy, rng: Rng, state: SimSlotState, wave: number) {
+  const available = LEGENDARY_IDS.filter((id) => !state.legendary.includes(id) && !legendaryConflict(id, state.legendary));
+  const offered = shuffle(available, rng).slice(0, 2);
+  const power = (id: LegendarySlotPerkId) => {
+    const nudgeScale = 1 + state.nudgeUpgrades * 0.35;
+    if (id === 'precision-training') return 3.2 * nudgeScale;
+    if (id === 'perfect-nudge') return 2.4 * nudgeScale;
+    if (id === 'overdrive') return state.legendary.includes('rewire') ? 3.6 : 2.5;
+    if (id === 'rising-stars') return 2.8 + (state.legendary.includes('rewire') ? 0.6 : 0);
+    if (id === 'training-day') return 2.9 - wave * 0.09;
+    if (id === 'rewire') return 2.4 + state.nudgeUpgrades * 0.65 + (state.legendary.includes('rising-stars') ? 0.7 : 0);
+    if (id === 'diagonal-fortune') return 2.3;
+    return 2.15;
+  };
+  const selected = strategy === 'random' ? pick(offered, rng) : [...offered].sort((a, b) => power(b) - power(a))[0];
+  state.legendary.push(selected);
 }
 
 function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng) {
@@ -327,26 +400,49 @@ function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): Run
   let recruited = 0;
   let levelUps = 0;
   let deathWave: number | null = null;
+  const slotState: SimSlotState = {
+    legendary: [],
+    nudgeUpgrades: 0,
+    successfulSpinsThisWave: 0,
+    perfectNudgeUsedThisWave: false,
+    trainingDayUsedThisWave: false,
+  };
 
   for (let wave = 1; wave <= GAME_CONFIG.stage.totalWaves; wave += 1) {
-    const randomNudgeSpin = Math.floor(rng() * GAME_CONFIG.stage.preparationSpins);
-    let usedNudge = false;
-    for (let spin = 0; spin < GAME_CONFIG.stage.preparationSpins; spin += 1) {
+    slotState.successfulSpinsThisWave = 0;
+    slotState.perfectNudgeUsedThisWave = false;
+    slotState.trainingDayUsedThisWave = false;
+    let spinsThisWave = GAME_CONFIG.stage.preparationSpins;
+    let nudgesLeft = GAME_CONFIG.stage.nudgesPerPreparation + slotState.nudgeUpgrades;
+    if (slotState.legendary.includes('overdrive')) { spinsThisWave -= 1; nudgesLeft += 2; }
+    if (slotState.legendary.includes('rewire')) { spinsThisWave += nudgesLeft; nudgesLeft = 0; }
+
+    for (let spin = 0; spin < spinsThisWave; spin += 1) {
       const grid = makeGrid(matrix, rng, openingSpins < GAME_CONFIG.stage.guaranteedWinningOpeningSpins);
       openingSpins += 1;
-      recruited += awardGrid(grid, matrix, heroes);
+      recruited += awardGrid(grid, matrix, heroes, 'spin', slotState);
       levelUps += processLevels(heroes, strategy, rng);
-      const shouldNudge = strategy === 'random'
-        ? spin === randomNudgeSpin
-        : spin === GAME_CONFIG.stage.preparationSpins - 1 || Math.max(...[0, 1, 2].map((reel) => nudgeScore(grid, reel, matrix, heroes, carryIds))) >= 4.5;
-      if (!usedNudge && shouldNudge) {
+      let currentGrid = grid;
+      let safety = 0;
+      while (nudgesLeft > 0 && safety < 12) {
+        safety += 1;
+        const scores = [0, 1, 2].map((reel) => nudgeScore(currentGrid, reel, matrix, heroes, carryIds, slotState));
+        const shouldNudge = strategy === 'random'
+          ? (spin === spinsThisWave - 1 || rng() < 0.24)
+          : spin === spinsThisWave - 1 || Math.max(...scores) >= 4.5;
+        if (!shouldNudge) break;
         const reel = strategy === 'random'
           ? Math.floor(rng() * 3)
-          : [...[0, 1, 2]].sort((a, b) => nudgeScore(grid, b, matrix, heroes, carryIds) - nudgeScore(grid, a, matrix, heroes, carryIds))[0];
-        const nudged = nudgeGrid(grid, reel, rng);
-        recruited += awardGrid(nudged, matrix, heroes, grid);
+          : [...[0, 1, 2]].sort((a, b) => scores[b] - scores[a])[0];
+        currentGrid = nudgeGrid(currentGrid, reel, rng);
+        nudgesLeft -= 1;
+        const nudgeWins = winningLines(currentGrid).length;
+        recruited += awardGrid(currentGrid, matrix, heroes, 'nudge', slotState);
         levelUps += processLevels(heroes, strategy, rng);
-        usedNudge = true;
+        if (nudgeWins > 0 && hasLegendary(slotState, 'perfect-nudge') && !slotState.perfectNudgeUsedThisWave) {
+          slotState.perfectNudgeUsedThisWave = true;
+          nudgesLeft += 1;
+        }
       }
     }
     const combat = fightWave(wave, heroes, hp, rng);
@@ -364,7 +460,10 @@ function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): Run
       heroShots[id] += combat.shotsByHero[id];
     });
     if (hp <= 0) { deathWave = wave; break; }
-    if (wave < GAME_CONFIG.stage.totalWaves) chooseUpgrade(matrix, heroes, strategy, rng, carryIds);
+    if (wave < GAME_CONFIG.stage.totalWaves) {
+      if (GAME_CONFIG.stage.legendaryUpgradeWaves.includes(wave as 3 | 6 | 9)) chooseLegendaryUpgrade(strategy, rng, slotState, wave);
+      else chooseCommonUpgrade(matrix, heroes, strategy, rng, carryIds, slotState);
+    }
   }
 
   return {
@@ -420,11 +519,11 @@ function summarize(strategy: Strategy, baseSeed: number, carryIds: HeroId[] = []
     avgDeepestProgressByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.deepestProgress))),
     avgKillYByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.averageKillY))),
     avgDurationSecondsByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => avg(reachedWaveValues(wave, (result) => result.durationMs)) / 1000),
-    avgBossDeepestProgress: avg(results.flatMap((result) => result.waves[9]?.bossDeepestProgress ?? [])),
+    avgBossDeepestProgress: avg(results.flatMap((result) => result.waves.at(-1)?.bossDeepestProgress ?? [])),
     highCarryRunShare: highCarryResults.length / results.length,
     highCarryWinRate: avg(highCarryResults.map((result) => Number(result.won))),
-    highCarryWaveTenHpLost: avg(highCarryResults.flatMap((result) => result.waves[9]?.hpLost ?? [])),
-    highCarryBossDeepestProgress: avg(highCarryResults.flatMap((result) => result.waves[9]?.bossDeepestProgress ?? [])),
+    highCarryFinalWaveHpLost: avg(highCarryResults.flatMap((result) => result.waves.at(-1)?.hpLost ?? [])),
+    highCarryBossDeepestProgress: avg(highCarryResults.flatMap((result) => result.waves.at(-1)?.bossDeepestProgress ?? [])),
     heroDamageShare: Object.fromEntries(HERO_ORDER.map((id) => [id, heroDamageTotals[id] / Math.max(1, totalHeroDamage)])),
     heroShotsPerRun: Object.fromEntries(HERO_ORDER.map((id) => [id, heroShotTotals[id] / runs])),
   };
@@ -456,6 +555,13 @@ console.log(JSON.stringify({
     ],
     smartFlawlessAmongWinsMean: mean(smartSummaries.map((summary) => summary.flawlessAmongWins)),
     highCarryWinRateMean: mean(smartSummaries.map((summary) => summary.highCarryWinRate)),
+    smartAvgDurationSecondsByWave: Array.from({ length: GAME_CONFIG.stage.totalWaves }, (_, wave) => (
+      mean(smartSummaries.map((summary) => summary.avgDurationSecondsByWave[wave]))
+    )),
+    smartProfileDurationRange: [
+      Math.min(...smartSummaries.flatMap((summary) => summary.avgDurationSecondsByWave)),
+      Math.max(...smartSummaries.flatMap((summary) => summary.avgDurationSecondsByWave)),
+    ],
   },
   summaries,
 }, null, 2));

@@ -91,12 +91,33 @@ export interface ComboFeedback {
   totalXp: number;
 }
 
+export type SlotUpgradeRarity = 'common' | 'legendary';
+export type LegendarySlotPerkId =
+  | 'perfect-nudge'
+  | 'overdrive'
+  | 'precision-training'
+  | 'rising-stars'
+  | 'training-day'
+  | 'rewire'
+  | 'horizontal-fortune'
+  | 'vertical-fortune'
+  | 'diagonal-fortune';
+
+export interface SlotPerkFeedback {
+  id: number;
+  label: string;
+  multiplier?: number;
+}
+
 export interface SlotUpgrade {
   id: string;
   title: string;
-  stars: number;
+  description: string;
+  rarity: SlotUpgradeRarity;
+  stars?: number;
   affectedHeroes: HeroId[];
   affectedReels: number[];
   nudgeBonus?: number;
+  legendaryId?: LegendarySlotPerkId;
   apply: (xpByReel: number[][]) => number[][];
 }

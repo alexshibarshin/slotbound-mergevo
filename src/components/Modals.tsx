@@ -28,19 +28,22 @@ export function LevelUpModal({ game }: { game: GameController }) {
 
 export function SlotUpgradeModal({ game }: { game: GameController }) {
   if (game.phase !== 'slotUpgrade') return null;
+  const legendary = game.slotUpgradeChoices[0]?.rarity === 'legendary';
   return (
     <div className="modal-backdrop slot-upgrade-backdrop">
-      <section className="slot-upgrade-modal">
-        <div className="ribbon ribbon-blue"><AtlasSprite atlas="ui" index={0} /><strong>REEL UPGRADE</strong></div>
+      <section className={`slot-upgrade-modal ${legendary ? 'legendary-upgrade-modal' : ''}`}>
+        <div className={`ribbon ${legendary ? 'ribbon-legendary' : 'ribbon-blue'}`}><AtlasSprite atlas="ui" index={0} /><strong>{legendary ? 'LEGENDARY REEL PERK' : 'REEL UPGRADE'}</strong></div>
         <div className="upgrade-slot-preview">
           <ReelUpgradePreview xpByReel={game.xpByReel} />
         </div>
-        <p>CHOOSE ONE ENCHANTMENT</p>
+        <p>{legendary ? 'CHOOSE ONE LEGENDARY PERK' : 'CHOOSE ONE ENCHANTMENT'}</p>
         <div className="upgrade-options">
           {game.slotUpgradeChoices.map((upgrade) => (
-            <button key={upgrade.id} onClick={() => game.chooseSlotUpgrade(upgrade)}>
-              <span className={`upgrade-glyph ${upgrade.nudgeBonus ? 'nudge-glyph' : upgrade.affectedHeroes.length === 0 ? 'reel-glyph' : ''} ${upgrade.affectedHeroes.length > 1 ? 'dual-glyph' : ''}`}>
-                {upgrade.nudgeBonus
+            <button className={upgrade.rarity === 'legendary' ? 'legendary-upgrade-card' : ''} key={upgrade.id} onClick={() => game.chooseSlotUpgrade(upgrade)}>
+              <span className={`upgrade-glyph ${upgrade.rarity === 'legendary' ? 'legendary-glyph' : ''} ${upgrade.nudgeBonus ? 'nudge-glyph' : upgrade.affectedHeroes.length === 0 ? 'reel-glyph' : ''}`}>
+                {upgrade.rarity === 'legendary'
+                  ? <span className="legendary-perk-icon">★</span>
+                  : upgrade.nudgeBonus
                   ? <span className="nudge-upgrade-icon"><span className="nudge-chevron" /><b>+1</b></span>
                   : upgrade.affectedHeroes.length > 0
                   ? upgrade.affectedHeroes.map((heroId) => <AtlasSprite key={heroId} atlas="heroPortrait" index={HEROES[heroId].atlasIndex} />)
@@ -58,39 +61,28 @@ export function SlotUpgradeModal({ game }: { game: GameController }) {
 }
 
 function SlotUpgradeDescription({ upgrade }: { upgrade: SlotUpgrade }) {
+  if (upgrade.rarity === 'legendary') {
+    return <small className="upgrade-description legendary-upgrade-description">{upgrade.description}</small>;
+  }
   if (upgrade.nudgeBonus) {
-    return <small className="upgrade-description nudge-upgrade-description">+1 Nudge per wave</small>;
+    return <small className="upgrade-description nudge-upgrade-description">{upgrade.description}</small>;
   }
 
-  const reelLabel = upgrade.affectedReels.length === 1 ? 'Reel' : 'Reels';
-  const reelNumbers = upgrade.affectedReels.map((reel) => reel + 1).join(' and ');
-  const accessibleDescription = `Add ${upgrade.stars} stars to ${upgrade.affectedHeroes.length === 0
-    ? 'all heroes'
-    : upgrade.affectedHeroes.map((heroId) => HEROES[heroId].name).join(' and ')} on ${reelLabel} ${reelNumbers}`;
+  const stars = upgrade.stars ?? 0;
+  const heroId = upgrade.affectedHeroes[0];
+  const heroName = heroId ? HEROES[heroId].name : null;
+  const target = upgrade.title === 'Hero Training'
+    ? <b className="upgrade-keyword hero-name" style={{ '--keyword-color': HERO_TEXT_COLORS[heroId] } as CSSProperties}>{heroName} symbols</b>
+    : upgrade.title === 'Reel Training'
+    ? <b className="upgrade-keyword reel-name">All symbols on Reel {upgrade.affectedReels[0] + 1}</b>
+    : <><b className="upgrade-keyword hero-name" style={{ '--keyword-color': HERO_TEXT_COLORS[heroId] } as CSSProperties}>{heroName}</b><span> on </span><b className="upgrade-keyword reel-name">Reel {upgrade.affectedReels[0] + 1}</b></>;
 
   return (
-    <small className="upgrade-description" aria-label={accessibleDescription}>
+    <small className="upgrade-description" aria-label={upgrade.description}>
+      <span className="upgrade-target-line">{target}</span>
       <span className="upgrade-effect-line">
-        <span>Add</span>
-        <span className="upgrade-star" aria-hidden="true"><b>{upgrade.stars}</b></span>
-        <span>to</span>
-      </span>
-      <span className="upgrade-target-line">
-        {upgrade.affectedHeroes.length === 0
-          ? <b className="upgrade-keyword all-heroes">all heroes</b>
-          : upgrade.affectedHeroes.map((heroId, index) => (
-            <span className="upgrade-hero-name" key={heroId}>
-              {index > 0 && <span>and</span>}
-              <b
-                className="upgrade-keyword hero-name"
-                style={{ '--keyword-color': HERO_TEXT_COLORS[heroId] } as CSSProperties}
-              >
-                {HEROES[heroId].name}
-              </b>
-            </span>
-          ))}
-        <span>on</span>
-        <b className="upgrade-keyword reel-name">{reelLabel} {reelNumbers}</b>
+        <span>gain +</span>
+        <span className="upgrade-star" aria-hidden="true"><b>{stars}</b></span>
       </span>
     </small>
   );

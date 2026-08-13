@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GAME_CONFIG, HEROES, HERO_ORDER } from '../config/gameConfig';
 import { getComboMultiplier } from '../game/combo';
-import { createGrid, createSlotUpgradeChoices, findWins, initialGrid, initialXpMatrix, nudgeReel } from '../game/slot';
-import type { ComboFeedback, HeroId, HeroPerk, HeroState, NudgeDirection, Phase, RewardFlight, SlotCell, SlotUpgrade } from '../types/game';
+import { createCommonSlotUpgradeChoices, createGrid, createLegendarySlotUpgradeChoices, findWins, initialGrid, initialXpMatrix, nudgeReel, WINNING_LINES } from '../game/slot';
+import type { ComboFeedback, HeroId, HeroPerk, HeroState, LegendarySlotPerkId, NudgeDirection, Phase, RewardFlight, SlotCell, SlotPerkFeedback, SlotUpgrade } from '../types/game';
 
 export interface GameController {
   phase: Phase;
@@ -22,6 +22,8 @@ export interface GameController {
   noMatch: boolean;
   rewardFlights: RewardFlight[];
   comboFeedback: ComboFeedback | null;
+  slotPerkFeedback: SlotPerkFeedback[];
+  legendarySlotPerks: LegendarySlotPerkId[];
   levelHero: HeroState | null;
   perkChoices: HeroPerk[];
   slotUpgradeChoices: SlotUpgrade[];
@@ -53,6 +55,7 @@ export function useGame(): GameController {
   const [spinsLeft, setSpinsLeft] = useState<number>(GAME_CONFIG.stage.preparationSpins);
   const [nudgesLeft, setNudgesLeft] = useState<number>(GAME_CONFIG.stage.nudgesPerPreparation);
   const [nudgeUpgradesTaken, setNudgeUpgradesTaken] = useState(0);
+  const [legendarySlotPerks, setLegendarySlotPerks] = useState<LegendarySlotPerkId[]>([]);
   const [spinning, setSpinning] = useState(false);
   const [nudgingReel, setNudgingReel] = useState<number | null>(null);
   const [nudgingDirection, setNudgingDirection] = useState<NudgeDirection | null>(null);
@@ -62,12 +65,43 @@ export function useGame(): GameController {
   const [noMatch, setNoMatch] = useState(false);
   const [rewardFlights, setRewardFlights] = useState<RewardFlight[]>([]);
   const [comboFeedback, setComboFeedback] = useState<ComboFeedback | null>(null);
+  const [slotPerkFeedback, setSlotPerkFeedback] = useState<SlotPerkFeedback[]>([]);
   const [levelHero, setLevelHero] = useState<HeroState | null>(null);
   const [perkChoices, setPerkChoices] = useState<HeroPerk[]>([]);
   const [slotUpgradeChoices, setSlotUpgradeChoices] = useState<SlotUpgrade[]>([]);
   const openingSpins = useRef(0);
   const clearTimer = useRef<number | null>(null);
   const comboTimer = useRef<number | null>(null);
+  const slotPerkFeedbackTimers = useRef<number[]>([]);
+  const successfulSpinsThisWave = useRef(0);
+  const perfectNudgeUsedThisWave = useRef(false);
+  const trainingDayUsedThisWave = useRef(false);
+
+  const hasLegendary = useCallback((id: LegendarySlotPerkId) => legendarySlotPerks.includes(id), [legendarySlotPerks]);
+
+  const showSlotPerkFeedback = useCallback((items: Array<Omit<SlotPerkFeedback, 'id'>>) => {
+    if (!items.length) return;
+    const now = Date.now();
+    const feedback = items.map((item, index) => ({ ...item, id: now + index }));
+    setSlotPerkFeedback(feedback);
+    slotPerkFeedbackTimers.current.forEach(window.clearTimeout);
+    slotPerkFeedbackTimers.current = [window.setTimeout(() => setSlotPerkFeedback([]), GAME_CONFIG.feedback.comboCelebrationMs)];
+  }, []);
+
+  const resetWavePerkTriggers = useCallback(() => {
+    successfulSpinsThisWave.current = 0;
+    perfectNudgeUsedThisWave.current = false;
+    trainingDayUsedThisWave.current = false;
+    setSlotPerkFeedback([]);
+  }, []);
+
+  const preparationResources = useCallback((perks: LegendarySlotPerkId[], nudgeBonus: number) => {
+    let spins = GAME_CONFIG.stage.preparationSpins;
+    let nudges = GAME_CONFIG.stage.nudgesPerPreparation + nudgeBonus;
+    if (perks.includes('overdrive')) { spins -= 1; nudges += 2; }
+    if (perks.includes('rewire')) { spins += nudges; nudges = 0; }
+    return { spins, nudges };
+  }, []);
 
   const clearComboFeedback = useCallback(() => {
     if (comboTimer.current) window.clearTimeout(comboTimer.current);
@@ -82,11 +116,12 @@ export function useGame(): GameController {
     setSpinsLeft(GAME_CONFIG.stage.preparationSpins);
     setNudgesLeft(GAME_CONFIG.stage.nudgesPerPreparation);
     setNudgeUpgradesTaken(0);
-    setWinningCells([]); setWinningLines([]); setNoMatch(false); setRewardFlights([]); setLevelHero(null); clearComboFeedback();
+    setLegendarySlotPerks([]);
+    setWinningCells([]); setWinningLines([]); setNoMatch(false); setRewardFlights([]); setLevelHero(null); clearComboFeedback(); resetWavePerkTriggers();
     setSpinning(false); setNudgingReel(null); setNudgingDirection(null); setPendingGrid(null); openingSpins.current = 0;
-  }, [clearComboFeedback]);
+  }, [clearComboFeedback, resetWavePerkTriggers]);
 
-  const awardWins = useCallback((result: SlotCell[], previousGrid?: SlotCell[]) => {
+  const awardWins = useCallback((result: SlotCell[], source: 'spin' | 'nudge') => {
     const wins = findWins(result);
     setWinningCells([...new Set(wins.flat())]);
     setWinningLines(wins);
@@ -95,27 +130,28 @@ export function useGame(): GameController {
       window.setTimeout(() => setNoMatch(false), 720);
       return;
     }
-    const previousWinKeys = new Set((previousGrid ? findWins(previousGrid) : []).map((line) => `${line.join('-')}:${previousGrid?.[line[0]].heroId}`));
-    const rewardWins = wins.filter((line) => !previousWinKeys.has(`${line.join('-')}:${result[line[0]].heroId}`));
-    if (!rewardWins.length) {
-      window.setTimeout(() => { setWinningCells([]); setWinningLines([]); }, GAME_CONFIG.feedback.winHighlightMs);
-      return;
-    }
-    const gained = new Map<HeroId, number>();
-    rewardWins.forEach((line) => line.forEach((index) => {
-      const cell = result[index];
-      gained.set(cell.heroId, (gained.get(cell.heroId) ?? 0) + cell.xp);
-    }));
-    // The celebration must match what the player sees: every winning line on the
-    // stopped grid counts toward the combo, even when Nudge preserved an already-paid line.
+    if (source === 'spin') successfulSpinsThisWave.current += 1;
+    const risingStarsActive = source === 'spin' && hasLegendary('rising-stars') && successfulSpinsThisWave.current >= 2;
+    const precisionTrainingActive = source === 'nudge' && hasLegendary('precision-training');
     const comboMultiplier = getComboMultiplier(wins.length);
-    if (comboMultiplier === 2 || comboMultiplier === 4) {
-      let totalXp = 0;
-      gained.forEach((xp, id) => {
-        const multipliedXp = xp * comboMultiplier;
-        gained.set(id, multipliedXp);
-        totalXp += multipliedXp;
+    const gained = new Map<HeroId, number>();
+    const triggeredGeometry = new Set<LegendarySlotPerkId>();
+    wins.forEach((line) => {
+      const lineIndex = WINNING_LINES.findIndex((candidate) => candidate.every((cell, index) => cell === line[index]));
+      let multiplierBonus = comboMultiplier - 1;
+      if (risingStarsActive) multiplierBonus += 1;
+      if (precisionTrainingActive) multiplierBonus += 1;
+      if (lineIndex <= 2 && hasLegendary('horizontal-fortune')) { multiplierBonus += 1; triggeredGeometry.add('horizontal-fortune'); }
+      if (lineIndex >= 3 && lineIndex <= 5 && hasLegendary('vertical-fortune')) { multiplierBonus += 1; triggeredGeometry.add('vertical-fortune'); }
+      if (lineIndex >= 6 && hasLegendary('diagonal-fortune')) { multiplierBonus += 2; triggeredGeometry.add('diagonal-fortune'); }
+      const lineMultiplier = 1 + multiplierBonus;
+      line.forEach((index) => {
+        const cell = result[index];
+        gained.set(cell.heroId, (gained.get(cell.heroId) ?? 0) + cell.xp * lineMultiplier);
       });
+    });
+    if (comboMultiplier === 2 || comboMultiplier === 4) {
+      const totalXp = [...gained.values()].reduce((sum, xp) => sum + xp, 0);
       if (comboTimer.current) window.clearTimeout(comboTimer.current);
       setComboFeedback({ id: Date.now(), lineCount: wins.length, multiplier: comboMultiplier, totalXp });
       comboTimer.current = window.setTimeout(() => {
@@ -123,18 +159,47 @@ export function useGame(): GameController {
         comboTimer.current = null;
       }, GAME_CONFIG.feedback.comboCelebrationMs);
     }
+    const perkMessages: Array<Omit<SlotPerkFeedback, 'id'>> = [];
+    if (risingStarsActive) perkMessages.push({ label: 'RISING STARS', multiplier: 2 });
+    if (precisionTrainingActive) perkMessages.push({ label: 'PRECISION TRAINING', multiplier: 2 });
+    if (triggeredGeometry.has('horizontal-fortune')) perkMessages.push({ label: 'HORIZONTAL FORTUNE', multiplier: 2 });
+    if (triggeredGeometry.has('vertical-fortune')) perkMessages.push({ label: 'VERTICAL FORTUNE', multiplier: 2 });
+    if (triggeredGeometry.has('diagonal-fortune')) perkMessages.push({ label: 'DIAGONAL FORTUNE', multiplier: 3 });
+
+    if (source === 'nudge' && hasLegendary('perfect-nudge') && !perfectNudgeUsedThisWave.current) {
+      perfectNudgeUsedThisWave.current = true;
+      setNudgesLeft((value) => value + 1);
+      perkMessages.push({ label: 'PERFECT NUDGE' });
+    }
+
+    if (source === 'spin' && hasLegendary('training-day') && !trainingDayUsedThisWave.current) {
+      trainingDayUsedThisWave.current = true;
+      const matchedHeroes = new Set(wins.map((line) => result[line[0]].heroId));
+      const nextMatrix = xpByReel.map((values) => [...values]);
+      matchedHeroes.forEach((heroId) => {
+        const heroIndex = HERO_ORDER.indexOf(heroId);
+        nextMatrix.forEach((values) => { values[heroIndex] += 1; });
+      });
+      setXpByReel(nextMatrix);
+      setGrid((currentGrid) => currentGrid.map((cell, index) => ({
+        ...cell,
+        xp: nextMatrix[index % 3][HERO_ORDER.indexOf(cell.heroId)],
+      })));
+      perkMessages.push({ label: 'TRAINING DAY' });
+    }
+    showSlotPerkFeedback(perkMessages);
     setHeroes((current) => {
       const next = current.map((hero) => ({ ...hero }));
       const flights: RewardFlight[] = [];
       gained.forEach((xp, id) => {
         const existing = next.find((hero) => hero.id === id);
-        if (existing) { existing.xp += xp; flights.push({ id: Date.now() + flights.length, heroId: id, xp, fromIndex: rewardWins[0][1], toSlot: existing.slot }); }
+        if (existing) { existing.xp += xp; flights.push({ id: Date.now() + flights.length, heroId: id, xp, fromIndex: wins[0][1], toSlot: existing.slot }); }
         else {
           const used = new Set(next.map((hero) => hero.slot));
           const firstEmpty = [0, 1, 2, 3, 4, 5].find((slot) => !used.has(slot));
           if (firstEmpty !== undefined) {
             next.push({ id, level: 1, xp, slot: firstEmpty, perks: [] });
-            flights.push({ id: Date.now() + flights.length, heroId: id, xp, fromIndex: rewardWins[0][1], toSlot: firstEmpty });
+            flights.push({ id: Date.now() + flights.length, heroId: id, xp, fromIndex: wins[0][1], toSlot: firstEmpty });
           }
         }
       });
@@ -145,7 +210,7 @@ export function useGame(): GameController {
       return next;
     });
     window.setTimeout(() => { setWinningCells([]); setWinningLines([]); }, GAME_CONFIG.feedback.winHighlightMs);
-  }, []);
+  }, [hasLegendary, showSlotPerkFeedback, xpByReel]);
 
   const spin = useCallback(() => {
     if (phase !== 'preparation' || spinning || spinsLeft <= 0) return;
@@ -156,7 +221,7 @@ export function useGame(): GameController {
     setNudgingReel(null); setNudgingDirection(null); setPendingGrid(result);
     openingSpins.current += 1;
     window.setTimeout(() => {
-      setGrid(result); setSpinsLeft((value) => value - 1); setSpinning(false); setPendingGrid(null); awardWins(result);
+      setGrid(result); setSpinsLeft((value) => value - 1); setSpinning(false); setPendingGrid(null); awardWins(result, 'spin');
     }, GAME_CONFIG.slot.spinDurationMs);
   }, [awardWins, clearComboFeedback, phase, spinning, spinsLeft, xpByReel]);
 
@@ -168,7 +233,7 @@ export function useGame(): GameController {
     const result = nudgeReel(grid, reel, xpByReel, direction);
     setNudgingReel(reel); setNudgingDirection(direction); setPendingGrid(result);
     window.setTimeout(() => {
-      setGrid(result); setNudgesLeft((value) => Math.max(0, value - 1)); setSpinning(false); setNudgingReel(null); setNudgingDirection(null); setPendingGrid(null); awardWins(result, grid);
+      setGrid(result); setNudgesLeft((value) => Math.max(0, value - 1)); setSpinning(false); setNudgingReel(null); setNudgingDirection(null); setPendingGrid(null); awardWins(result, 'nudge');
     }, GAME_CONFIG.slot.nudgeDurationMs);
   }, [awardWins, clearComboFeedback, grid, nudgesLeft, phase, spinning, xpByReel]);
 
@@ -190,9 +255,15 @@ export function useGame(): GameController {
     if (clearTimer.current) window.clearTimeout(clearTimer.current);
     clearTimer.current = window.setTimeout(() => {
       if (wave >= GAME_CONFIG.stage.totalWaves) setPhase('victory');
-      else { setSlotUpgradeChoices(createSlotUpgradeChoices(nudgeUpgradesTaken)); setPhase('slotUpgrade'); }
+      else {
+        const legendary = GAME_CONFIG.stage.legendaryUpgradeWaves.includes(wave as 3 | 6 | 9);
+        setSlotUpgradeChoices(legendary
+          ? createLegendarySlotUpgradeChoices(legendarySlotPerks)
+          : createCommonSlotUpgradeChoices(nudgeUpgradesTaken));
+        setPhase('slotUpgrade');
+      }
     }, GAME_CONFIG.feedback.waveClearMs);
-  }, [nudgeUpgradesTaken, wave]);
+  }, [legendarySlotPerks, nudgeUpgradesTaken, wave]);
 
   useEffect(() => {
     if (phase !== 'preparation' || spinning || levelHero) return;
@@ -224,18 +295,24 @@ export function useGame(): GameController {
       GAME_CONFIG.slotUpgrades.maxNudgeUpgrades,
       nudgeUpgradesTaken + (upgrade.nudgeBonus ?? 0),
     );
+    const nextLegendarySlotPerks = upgrade.legendaryId
+      ? [...legendarySlotPerks, upgrade.legendaryId]
+      : legendarySlotPerks;
     setXpByReel(matrix); setGrid((current) => current.map((cell, index) => ({
       ...cell, xp: matrix[index % 3][HERO_ORDER.indexOf(cell.heroId)],
     })));
     setNudgeUpgradesTaken(nextNudgeUpgradesTaken);
+    setLegendarySlotPerks(nextLegendarySlotPerks);
     setWave((value) => value + 1);
-    setSpinsLeft(GAME_CONFIG.stage.preparationSpins);
-    setNudgesLeft(GAME_CONFIG.stage.nudgesPerPreparation + nextNudgeUpgradesTaken);
+    const resources = preparationResources(nextLegendarySlotPerks, nextNudgeUpgradesTaken);
+    setSpinsLeft(resources.spins);
+    setNudgesLeft(resources.nudges);
+    resetWavePerkTriggers();
     setSlotUpgradeChoices([]); setPhase('preparation');
-  }, [nudgeUpgradesTaken, xpByReel]);
+  }, [legendarySlotPerks, nudgeUpgradesTaken, preparationResources, resetWavePerkTriggers, xpByReel]);
 
   return {
-    phase, wave, baseHp, heroes, grid, xpByReel, spinsLeft, nudgesLeft, spinning, nudgingReel, nudgingDirection, pendingGrid, winningCells, winningLines, noMatch, rewardFlights, comboFeedback,
+    phase, wave, baseHp, heroes, grid, xpByReel, spinsLeft, nudgesLeft, spinning, nudgingReel, nudgingDirection, pendingGrid, winningCells, winningLines, noMatch, rewardFlights, comboFeedback, slotPerkFeedback, legendarySlotPerks,
     levelHero, perkChoices, slotUpgradeChoices, start, spin, nudge, beginCombat, damageBase,
     completeWave, chooseHeroPerk, chooseSlotUpgrade,
   };

@@ -108,7 +108,13 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
 };
 
 export const GAME_CONFIG = {
-  stage: { totalWaves: 10, preparationSpins: 5, nudgesPerPreparation: 1, guaranteedWinningOpeningSpins: 3 },
+  stage: {
+    totalWaves: 12,
+    preparationSpins: 5,
+    nudgesPerPreparation: 1,
+    guaranteedWinningOpeningSpins: 3,
+    legendaryUpgradeWaves: [3, 6, 9],
+  },
   base: { maxHp: 100, damage: 7, attackIntervalMs: 1200, range: 48 },
   hero: { xpToLevel: heroXpToLevel, perkChoices: 2 },
   slot: {
@@ -124,32 +130,40 @@ export const GAME_CONFIG = {
       { minXp: 0, color: '#f8fafb' }, // white
     ],
   },
-  slotUpgrades: { focusedXp: 10, linkedXp: 5, pairedXp: 5, wholeReelXp: 2, maxNudgeUpgrades: 2 },
+  slotUpgrades: {
+    heroXp: 3,
+    wholeReelXp: 2,
+    focusedXp: 10,
+    maxNudgeUpgrades: 2,
+    commonFamilyWeights: { hero: 1, reel: 1, focused: 1, nudge: 0.65 },
+  },
   feedback: { winHighlightMs: 1050, rewardDelayMs: 340, rewardFlightMs: 1450, comboCelebrationMs: 1900, waveClearMs: 1300 },
   combat: {
     tickMs: 50,
-    spawnIntervalMs: 420,
+    spawnIntervalMs: 250,
     laneWidth: 28,
     baseY: 66.4,
     spawnY: 4,
-    bossSiege: { damage: 5, attackIntervalMs: 2000, firstAttackDelayMs: 1000 },
+    bossSiege: { damage: 20, attackIntervalMs: 1200, firstAttackDelayMs: 700 },
   },
   enemies: {
-    minion: { hp: 300, speed: 4.9, damage: 1, atlasIndex: 1, size: 11 },
-    elite: { hp: 1150, speed: 3.5, damage: 55, atlasIndex: 2, size: 15 },
-    boss: { hp: 13500, speed: 1.7, damage: 20, atlasIndex: 3, size: 23 },
+    minion: { hp: 380, speed: 5.8, damage: 2, atlasIndex: 1, size: 11 },
+    elite: { hp: 1400, speed: 4.2, damage: 55, atlasIndex: 2, size: 15 },
+    boss: { hp: 9000, speed: 2.3, damage: 20, atlasIndex: 3, size: 23 },
   } satisfies Record<EnemyType, { hp: number; speed: number; damage: number; atlasIndex: number; size: number }>,
   waves: [
-    { minion: 10, elite: 0, boss: 0, hpMultiplier: { minion: 0.38 }, speedMultiplier: { minion: 0.88 } },
-    { minion: 14, elite: 0, boss: 0, hpMultiplier: { minion: 0.5 }, speedMultiplier: { minion: 0.92 } },
-    { minion: 18, elite: 0, boss: 0, hpMultiplier: { minion: 0.65 }, speedMultiplier: { minion: 0.96 } },
-    { minion: 14, elite: 2, boss: 0, hpMultiplier: { minion: 0.85, elite: 0.45 } },
-    { minion: 22, elite: 0, boss: 0, hpMultiplier: { minion: 1.15 }, speedMultiplier: { minion: 1.15 } },
-    { minion: 26, elite: 0, boss: 0, hpMultiplier: { minion: 1.3 }, speedMultiplier: { minion: 1.25 } },
-    { minion: 16, elite: 4, boss: 0, hpMultiplier: { minion: 1.55, elite: 0.65 }, damageMultiplier: { elite: 1.82 }, speedMultiplier: { minion: 1.3, elite: 1.05 } },
-    { minion: 30, elite: 0, boss: 0, hpMultiplier: { minion: 2 }, speedMultiplier: { minion: 1.8 } },
-    { minion: 36, elite: 0, boss: 0, hpMultiplier: { minion: 2.35 }, speedMultiplier: { minion: 2 } },
-    { minion: 8, elite: 0, boss: 1, hpMultiplier: { minion: 2.65, boss: 0.78 }, damageMultiplier: { minion: 2 }, speedMultiplier: { minion: 1.5, boss: 1.25 }, bossFirst: true },
+    { minion: 8, elite: 0, boss: 0, hpMultiplier: { minion: 0.34 }, speedMultiplier: { minion: 0.9 } },
+    { minion: 11, elite: 0, boss: 0, hpMultiplier: { minion: 0.44 }, speedMultiplier: { minion: 0.94 } },
+    { minion: 10, elite: 1, boss: 0, hpMultiplier: { minion: 0.56, elite: 0.34 }, speedMultiplier: { minion: 0.98 } },
+    { minion: 16, elite: 0, boss: 0, hpMultiplier: { minion: 0.72 }, speedMultiplier: { minion: 1.04 } },
+    { minion: 19, elite: 0, boss: 0, hpMultiplier: { minion: 0.88 }, speedMultiplier: { minion: 1.1 } },
+    { minion: 14, elite: 2, boss: 0, hpMultiplier: { minion: 1.02, elite: 0.48 }, speedMultiplier: { minion: 1.15, elite: 1.04 } },
+    { minion: 23, elite: 0, boss: 0, hpMultiplier: { minion: 1.22 }, speedMultiplier: { minion: 1.28 } },
+    { minion: 27, elite: 0, boss: 0, hpMultiplier: { minion: 1.45 }, speedMultiplier: { minion: 1.42 } },
+    { minion: 18, elite: 3, boss: 0, hpMultiplier: { minion: 1.62, elite: 0.64 }, damageMultiplier: { elite: 1.35 }, speedMultiplier: { minion: 1.48, elite: 1.08 } },
+    { minion: 31, elite: 0, boss: 0, hpMultiplier: { minion: 1.9 }, speedMultiplier: { minion: 1.72 } },
+    { minion: 35, elite: 0, boss: 0, hpMultiplier: { minion: 2.18 }, speedMultiplier: { minion: 1.9 } },
+    { minion: 8, elite: 0, boss: 1, hpMultiplier: { minion: 2.35, boss: 0.82 }, damageMultiplier: { minion: 1.8 }, speedMultiplier: { minion: 1.55, boss: 1.28 }, bossFirst: true },
   ] as WaveConfig[],
 } as const;
 
