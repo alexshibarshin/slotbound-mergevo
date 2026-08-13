@@ -122,6 +122,10 @@ export const GAME_CONFIG = {
     nudgeDurationMs: 360,
     enableUpwardNudge: true,
     symbolWeights: [0.2, 0.2, 0.2, 0.2, 0.2],
+    smartRandom: {
+      rerollsByLossStreak: [0, 1, 5],
+      guaranteedWinLossStreak: 3,
+    },
     // Tiers are evaluated from top to bottom, so keep the minimum XP values descending.
     xpBackgroundTiers: [
       { minXp: 15, color: '#e1dcf5' }, // pale violet

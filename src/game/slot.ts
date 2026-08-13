@@ -1,19 +1,32 @@
 import { GAME_CONFIG, HEROES, HERO_ORDER } from '../config/gameConfig';
 import type { HeroId, LegendarySlotPerkId, NudgeDirection, SlotCell, SlotUpgrade } from '../types/game';
 
+type RandomSource = () => number;
+
 export const WINNING_LINES = [
   [0, 1, 2], [3, 4, 5], [6, 7, 8],
   [0, 3, 6], [1, 4, 7], [2, 5, 8],
   [0, 4, 8], [2, 4, 6],
 ] as const;
 
-const randomHero = (): HeroId => HERO_ORDER[Math.floor(Math.random() * HERO_ORDER.length)];
+const randomHero = (random: RandomSource = Math.random): HeroId => {
+  const weights = GAME_CONFIG.slot.symbolWeights;
+  const totalWeight = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  if (totalWeight <= 0) return HERO_ORDER[Math.floor(random() * HERO_ORDER.length)] ?? HERO_ORDER[0];
+  let roll = random() * totalWeight;
+  for (let index = 0; index < HERO_ORDER.length; index += 1) {
+    const weight = Math.max(0, weights[index] ?? 0);
+    if (roll < weight) return HERO_ORDER[index];
+    roll -= weight;
+  }
+  return HERO_ORDER.at(-1)!;
+};
 
-export function createGrid(xpByReel: number[][], guaranteeWin = false): SlotCell[] {
-  const heroes = Array.from({ length: 9 }, randomHero);
+export function createGrid(xpByReel: number[][], guaranteeWin = false, random: RandomSource = Math.random): SlotCell[] {
+  const heroes = Array.from({ length: 9 }, () => randomHero(random));
   if (guaranteeWin) {
-    const winner = randomHero();
-    const line = WINNING_LINES[Math.floor(Math.random() * WINNING_LINES.length)];
+    const winner = randomHero(random);
+    const line = WINNING_LINES[Math.floor(random() * WINNING_LINES.length)] ?? WINNING_LINES[0];
     line.forEach((index) => { heroes[index] = winner; });
   }
   return heroes.map((heroId, index) => ({
@@ -22,9 +35,15 @@ export function createGrid(xpByReel: number[][], guaranteeWin = false): SlotCell
   }));
 }
 
-export function nudgeReel(grid: SlotCell[], reel: number, xpByReel: number[][], direction: NudgeDirection = 'down'): SlotCell[] {
+export function nudgeReel(
+  grid: SlotCell[],
+  reel: number,
+  xpByReel: number[][],
+  direction: NudgeDirection = 'down',
+  random: RandomSource = Math.random,
+): SlotCell[] {
   const next = [...grid];
-  const heroId = randomHero();
+  const heroId = randomHero(random);
   const incoming = { heroId, xp: xpByReel[reel][HERO_ORDER.indexOf(heroId)] };
   if (direction === 'up') {
     next[reel] = next[reel + 3];
@@ -42,6 +61,87 @@ export function findWins(grid: SlotCell[]): number[][] {
   return WINNING_LINES
     .filter(([a, b, c]) => grid[a].heroId === grid[b].heroId && grid[b].heroId === grid[c].heroId)
     .map((line) => [...line]);
+}
+
+const lineKey = (line: readonly number[]) => line.join('-');
+
+function nudgeWithIncomingHero(
+  grid: SlotCell[],
+  reel: number,
+  direction: NudgeDirection,
+  heroId: HeroId,
+): SlotCell[] {
+  const next = grid.map((cell) => ({ ...cell }));
+  const incoming = { ...grid[reel], heroId };
+  if (direction === 'up') {
+    next[reel] = next[reel + 3];
+    next[reel + 3] = next[reel + 6];
+    next[reel + 6] = incoming;
+  } else {
+    next[reel + 6] = next[reel + 3];
+    next[reel + 3] = next[reel];
+    next[reel] = incoming;
+  }
+  return next;
+}
+
+/** True when one legal Nudge creates a new win for every possible incoming symbol. */
+export function hasGuaranteedNudgeOpportunity(grid: SlotCell[], enableUpwardNudge = true): boolean {
+  const existingWins = new Set(findWins(grid).map(lineKey));
+  const directions: NudgeDirection[] = enableUpwardNudge ? ['down', 'up'] : ['down'];
+  return [0, 1, 2].some((reel) => directions.some((direction) => HERO_ORDER.every((heroId) => {
+    const result = nudgeWithIncomingHero(grid, reel, direction, heroId);
+    return findWins(result).some((line) => !existingWins.has(lineKey(line)));
+  })));
+}
+
+export interface SmartGridOptions {
+  lossStreak: number;
+  nudgesAvailable: number;
+  guaranteeWin?: boolean;
+  random?: RandomSource;
+}
+
+export interface SmartGridResult {
+  grid: SlotCell[];
+  hasGuaranteedNudgeOpportunity: boolean;
+  rolls: number;
+}
+
+/** Generates independent rolls and accepts the first win or usable guaranteed Nudge setup. */
+export function createSmartGrid(xpByReel: number[][], options: SmartGridOptions): SmartGridResult {
+  const random = options.random ?? Math.random;
+  const lossStreak = Math.max(0, Math.floor(options.lossStreak));
+  const forceWin = options.guaranteeWin
+    || lossStreak >= GAME_CONFIG.slot.smartRandom.guaranteedWinLossStreak;
+
+  if (forceWin) {
+    const grid = createGrid(xpByReel, true, random);
+    return {
+      grid,
+      hasGuaranteedNudgeOpportunity: options.nudgesAvailable > 0
+        && hasGuaranteedNudgeOpportunity(grid, GAME_CONFIG.slot.enableUpwardNudge),
+      rolls: 1,
+    };
+  }
+
+  const rerollsByLossStreak = GAME_CONFIG.slot.smartRandom.rerollsByLossStreak;
+  const rerollIndex = Math.min(lossStreak, rerollsByLossStreak.length - 1);
+  const rerollLimit = Math.max(0, rerollsByLossStreak[rerollIndex] ?? 0);
+  let grid = createGrid(xpByReel, false, random);
+  let rolls = 1;
+
+  for (let reroll = 0; reroll <= rerollLimit; reroll += 1) {
+    const guaranteedNudge = options.nudgesAvailable > 0
+      && hasGuaranteedNudgeOpportunity(grid, GAME_CONFIG.slot.enableUpwardNudge);
+    if (findWins(grid).length > 0 || guaranteedNudge || reroll === rerollLimit) {
+      return { grid, hasGuaranteedNudgeOpportunity: guaranteedNudge, rolls };
+    }
+    grid = createGrid(xpByReel, false, random);
+    rolls += 1;
+  }
+
+  return { grid, hasGuaranteedNudgeOpportunity: false, rolls };
 }
 
 const cloneMatrix = (matrix: number[][]) => matrix.map((row) => [...row]);

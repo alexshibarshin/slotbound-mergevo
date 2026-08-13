@@ -85,10 +85,23 @@ const shuffle = <T>(items: readonly T[], rng: Rng): T[] => {
 const blankHeroRecord = () => Object.fromEntries(HERO_ORDER.map((id) => [id, 0])) as Record<HeroId, number>;
 const initialMatrix = () => Array.from({ length: 3 }, () => HERO_ORDER.map(() => 1));
 
+function weightedHero(rng: Rng): HeroId {
+  const weights = GAME_CONFIG.slot.symbolWeights;
+  const totalWeight = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  if (totalWeight <= 0) return pick(HERO_ORDER, rng);
+  let roll = rng() * totalWeight;
+  for (let index = 0; index < HERO_ORDER.length; index += 1) {
+    const weight = Math.max(0, weights[index] ?? 0);
+    if (roll < weight) return HERO_ORDER[index];
+    roll -= weight;
+  }
+  return HERO_ORDER.at(-1)!;
+}
+
 function makeGrid(matrix: number[][], rng: Rng, guaranteeWin: boolean): HeroId[] {
-  const grid = Array.from({ length: 9 }, () => pick(HERO_ORDER, rng));
+  const grid = Array.from({ length: 9 }, () => weightedHero(rng));
   if (guaranteeWin) {
-    const winner = pick(HERO_ORDER, rng);
+    const winner = weightedHero(rng);
     pick(WINNING_LINES, rng).forEach((index) => { grid[index] = winner; });
   }
   return grid;
@@ -104,6 +117,46 @@ function nudgeGrid(grid: HeroId[], reel: number, rng: Rng): HeroId[] {
 
 function winningLines(grid: HeroId[]) {
   return WINNING_LINES.filter(([a, b, c]) => grid[a] === grid[b] && grid[b] === grid[c]);
+}
+
+function hasGuaranteedNudgeOpportunity(grid: HeroId[]): boolean {
+  const directions = GAME_CONFIG.slot.enableUpwardNudge ? ['down', 'up'] as const : ['down'] as const;
+  return [0, 1, 2].some((reel) => directions.some((direction) => HERO_ORDER.every((incoming) => {
+    const next = [...grid];
+    if (direction === 'up') {
+      next[reel] = next[reel + 3];
+      next[reel + 3] = next[reel + 6];
+      next[reel + 6] = incoming;
+    } else {
+      next[reel + 6] = next[reel + 3];
+      next[reel + 3] = next[reel];
+      next[reel] = incoming;
+    }
+    return winningLines(next).length > 0;
+  })));
+}
+
+function makeSmartGrid(
+  matrix: number[][],
+  rng: Rng,
+  lossStreak: number,
+  nudgesAvailable: number,
+  openingGuarantee: boolean,
+): { grid: HeroId[]; guaranteedNudge: boolean } {
+  if (openingGuarantee || lossStreak >= GAME_CONFIG.slot.smartRandom.guaranteedWinLossStreak) {
+    return { grid: makeGrid(matrix, rng, true), guaranteedNudge: false };
+  }
+  const rerolls = GAME_CONFIG.slot.smartRandom.rerollsByLossStreak;
+  const rerollLimit = rerolls[Math.min(lossStreak, rerolls.length - 1)] ?? 0;
+  let grid = makeGrid(matrix, rng, false);
+  for (let reroll = 0; reroll <= rerollLimit; reroll += 1) {
+    const guaranteedNudge = nudgesAvailable > 0 && hasGuaranteedNudgeOpportunity(grid);
+    if (winningLines(grid).length > 0 || guaranteedNudge || reroll === rerollLimit) {
+      return { grid, guaranteedNudge };
+    }
+    grid = makeGrid(matrix, rng, false);
+  }
+  return { grid, guaranteedNudge: false };
 }
 
 function heroPriority(id: HeroId, heroes: HeroState[], carryIds: HeroId[] = []): number {
@@ -397,6 +450,7 @@ function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): Run
   const waves: WaveResult[] = [];
   let hp = GAME_CONFIG.base.maxHp;
   let openingSpins = 0;
+  let lossStreak = 0;
   let recruited = 0;
   let levelUps = 0;
   let deathWave: number | null = null;
@@ -418,11 +472,20 @@ function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): Run
     if (slotState.legendary.includes('rewire')) { spinsThisWave += nudgesLeft; nudgesLeft = 0; }
 
     for (let spin = 0; spin < spinsThisWave; spin += 1) {
-      const grid = makeGrid(matrix, rng, openingSpins < GAME_CONFIG.stage.guaranteedWinningOpeningSpins);
+      const smartResult = makeSmartGrid(
+        matrix,
+        rng,
+        lossStreak,
+        nudgesLeft,
+        openingSpins < GAME_CONFIG.stage.guaranteedWinningOpeningSpins,
+      );
+      const grid = smartResult.grid;
       openingSpins += 1;
+      lossStreak = winningLines(grid).length > 0 ? 0 : lossStreak + 1;
       recruited += awardGrid(grid, matrix, heroes, 'spin', slotState);
       levelUps += processLevels(heroes, strategy, rng);
       let currentGrid = grid;
+      let currentHasGuaranteedNudge = smartResult.guaranteedNudge;
       let safety = 0;
       while (nudgesLeft > 0 && safety < 12) {
         safety += 1;
@@ -437,6 +500,8 @@ function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): Run
         currentGrid = nudgeGrid(currentGrid, reel, rng);
         nudgesLeft -= 1;
         const nudgeWins = winningLines(currentGrid).length;
+        if (currentHasGuaranteedNudge || nudgeWins > 0) lossStreak = 0;
+        currentHasGuaranteedNudge = false;
         recruited += awardGrid(currentGrid, matrix, heroes, 'nudge', slotState);
         levelUps += processLevels(heroes, strategy, rng);
         if (nudgeWins > 0 && hasLegendary(slotState, 'perfect-nudge') && !slotState.perfectNudgeUsedThisWave) {
