@@ -2,16 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { GAME_CONFIG, HEROES, PEDESTAL_POSITIONS } from '../config/gameConfig';
 import { combatDistance, getAbilityTargets } from '../game/combat';
 import { getHeroStats } from '../game/stats';
-import type { EnemyState, EnemyType, HeroId, HeroState, ShotFx } from '../types/game';
+import type { EnemyState, EnemyType, HeroState, ShotFx } from '../types/game';
 import { AtlasSprite } from './AtlasSprite';
 
 let entityId = 1;
 type HitFxState = { id: number; enemyId: number; x: number; y: number; amount: number; kind: string; kill: boolean; createdAt: number };
 
-export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComplete }: {
+export function CombatLayer({ wave, heroes, onBaseDamage, onComplete }: {
   wave: number;
   heroes: HeroState[];
-  draggingHero: HeroId | null;
   onBaseDamage: (amount: number) => void;
   onComplete: () => void;
 }) {
@@ -20,7 +19,6 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
   const [hitFxs, setHitFxs] = useState<HitFxState[]>([]);
   const enemiesRef = useRef<EnemyState[]>([]);
   const heroesRef = useRef(heroes);
-  const draggingRef = useRef(draggingHero);
   const queueRef = useRef<EnemyType[]>([]);
   const cooldowns = useRef<Record<string, number>>({});
   const impactTimers = useRef<number[]>([]);
@@ -28,7 +26,6 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
 
   useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
   useEffect(() => { heroesRef.current = heroes; }, [heroes]);
-  useEffect(() => { draggingRef.current = draggingHero; }, [draggingHero]);
 
   useEffect(() => {
     const waveConfig = GAME_CONFIG.waves[wave - 1];
@@ -48,7 +45,7 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
       const damage = config.damage * (waveConfig.damageMultiplier?.[type] ?? 1);
       const speed = config.speed * (waveConfig.speedMultiplier?.[type] ?? 1);
       const spawned: EnemyState = {
-        id: entityId++, type, x: 42 + Math.random() * 16, y: 96 + Math.random() * 5,
+        id: entityId++, type, x: 13 + Math.random() * 74, y: GAME_CONFIG.combat.spawnY + Math.random() * 3,
         hp, maxHp: hp, speed, damage, alive: true,
       };
       const next = [...enemiesRef.current, spawned];
@@ -68,8 +65,8 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
       const baseHits: number[] = [];
       next.forEach((enemy) => {
         if (!enemy.alive) return;
-        if (!enemy.isSieging) enemy.y -= enemy.speed * dt / 1000;
-        if (enemy.y <= GAME_CONFIG.combat.baseY) {
+        if (!enemy.isSieging) enemy.y += enemy.speed * dt / 1000;
+        if (enemy.y >= GAME_CONFIG.combat.baseY) {
           if (enemy.type === 'boss') {
             enemy.y = GAME_CONFIG.combat.baseY;
             if (!enemy.isSieging) {
@@ -88,28 +85,21 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
       baseHits.forEach(onBaseDamage);
 
       const live = () => next.filter((enemy) => enemy.alive && enemy.hp > 0);
-      const addShot = (heroId: HeroId | 'king', kind: ShotFx['kind'], from: { x: number; y: number }, to: EnemyState) => {
+      const addShot = (heroId: HeroState['id'], kind: ShotFx['kind'], from: { x: number; y: number }, to: EnemyState) => {
         setShots((current) => [...current.filter((shot) => now - shot.createdAt < 650), {
           id: entityId++, heroId, kind, x1: from.x, y1: from.y, x2: to.x, y2: to.y, createdAt: now,
         }]);
       };
 
       heroesRef.current.forEach((hero) => {
-        if (hero.id === draggingRef.current) return;
         const stats = getHeroStats(hero); const from = PEDESTAL_POSITIONS[hero.slot];
         if ((cooldowns.current[hero.id] ?? 0) > now) return;
-        const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => a.y - b.y);
+        const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => b.y - a.y);
         const target = targets[0]; if (!target) return;
         cooldowns.current[hero.id] = now + stats.attackIntervalMs;
         const ability = HEROES[hero.id].ability; addShot(hero.id, ability, from, target);
         getAbilityTargets(ability, stats, from, target, targets, live()).forEach((enemy) => damage(enemy, stats.damage, ability));
       });
-
-      if ((cooldowns.current.king ?? 0) <= now) {
-        const from = { x: 50, y: 13 };
-        const target = live().filter((enemy) => combatDistance(from, enemy) <= GAME_CONFIG.base.range).sort((a, b) => a.y - b.y)[0];
-        if (target) { damage(target, GAME_CONFIG.base.damage, 'royal'); cooldowns.current.king = now + GAME_CONFIG.base.attackIntervalMs; addShot('king', 'royal', from, target); }
-      }
 
       next.forEach((enemy) => { if (enemy.hp <= 0) enemy.alive = false; });
       next = next.filter((enemy) => enemy.alive);
@@ -141,7 +131,7 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
 
   return (
     <div className="combat-layer">
-      <div className="wave-intro"><span>WAVE {wave}</span><b>DEFEND THE THRONE</b></div>
+      <div className="wave-intro"><span>WAVE {wave}</span><b>DEFEND THE GATE</b></div>
       {enemies.map((enemy) => {
         const config = GAME_CONFIG.enemies[enemy.type];
         return <div className={`enemy enemy-${enemy.type} ${enemy.isSieging ? 'is-sieging' : ''} ${(enemy.lastHit && performance.now() - enemy.lastHit < 220) ? 'is-hit' : ''}`} key={enemy.id} style={{ left: `${enemy.x}%`, top: `${enemy.y}%`, width: `${config.size}%` }}>
@@ -161,7 +151,7 @@ export function CombatLayer({ wave, heroes, draggingHero, onBaseDamage, onComple
 }
 
 function Shot({ shot }: { shot: ShotFx }) {
-  const index = shot.heroId === 'king' ? 0 : HEROES[shot.heroId].atlasIndex;
+  const index = HEROES[shot.heroId as HeroState['id']].atlasIndex;
   const angle = Math.atan2(shot.y2 - shot.y1, shot.x2 - shot.x1) * 180 / Math.PI + 90;
   return <div className={`shot shot-${shot.kind}`} style={{
     '--x1': `${shot.x1}%`, '--y1': `${shot.y1}%`,

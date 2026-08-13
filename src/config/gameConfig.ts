@@ -27,7 +27,7 @@ export const HERO_ORDER: HeroId[] = ['freya', 'glor', 'frosty', 'hadens', 'jenny
 export const HEROES: Record<HeroId, HeroDefinition> = {
   freya: {
     id: 'freya', name: 'Freya', title: 'Arcane Prodigy', color: '#a75cff', atlasIndex: 0, ability: 'missile',
-    stats: { damage: 26, attackIntervalMs: 680, range: 38, projectileSpeed: 1, aoeRadius: 0, pierce: 1, beamWidth: 0, effectDurationMs: 0 },
+    stats: { damage: 26, attackIntervalMs: 680, range: 48, projectileSpeed: 1, aoeRadius: 0, pierce: 1, beamWidth: 0, effectDurationMs: 0 },
     perks: [
       perk('freya-power', 'Empowered Bolt', 'Magic Missile damage +30%', 'common', { damage: 1.3 }),
       perk('freya-haste', 'Quick Casting', 'Attack speed +30%', 'common', { attackIntervalMs: 0.77 }),
@@ -43,7 +43,7 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
   },
   glor: {
     id: 'glor', name: 'Glor', title: 'Cannon Goblin', color: '#ff7040', atlasIndex: 1, ability: 'fireball',
-    stats: { damage: 28, attackIntervalMs: 1500, range: 38, projectileSpeed: 0.7, aoeRadius: 6, pierce: 1, beamWidth: 0, effectDurationMs: 0 },
+    stats: { damage: 28, attackIntervalMs: 1500, range: 48, projectileSpeed: 0.7, aoeRadius: 6, pierce: 1, beamWidth: 0, effectDurationMs: 0 },
     perks: [
       perk('glor-powder', 'Hotter Powder', 'Fireball damage +30%', 'common', { damage: 1.3 }),
       perk('glor-fuse', 'Short Fuse', 'Attack speed +30%', 'common', { attackIntervalMs: 0.77 }),
@@ -59,7 +59,7 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
   },
   frosty: {
     id: 'frosty', name: 'Frosty', title: 'Winter Weaver', color: '#64d9ff', atlasIndex: 2, ability: 'icicle',
-    stats: { damage: 25, attackIntervalMs: 1050, range: 46, projectileSpeed: 1.4, aoeRadius: 0, pierce: 3, beamWidth: 4.5, effectDurationMs: 0 },
+    stats: { damage: 25, attackIntervalMs: 1050, range: 58, projectileSpeed: 1.4, aoeRadius: 0, pierce: 3, beamWidth: 4.5, effectDurationMs: 0 },
     perks: [
       perk('frosty-sharp', 'Razor Ice', 'Icicle damage +30%', 'common', { damage: 1.3 }),
       perk('frosty-flow', 'Cold Flow', 'Attack speed +30%', 'common', { attackIntervalMs: 0.77 }),
@@ -75,7 +75,7 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
   },
   hadens: {
     id: 'hadens', name: 'Hadens', title: 'Storm Professor', color: '#ffd83d', atlasIndex: 3, ability: 'sector',
-    stats: { damage: 30, attackIntervalMs: 1150, range: 38, projectileSpeed: 0, aoeRadius: 8.5, pierce: 99, beamWidth: 0, effectDurationMs: 220 },
+    stats: { damage: 30, attackIntervalMs: 1150, range: 48, projectileSpeed: 0, aoeRadius: 8.5, pierce: 99, beamWidth: 0, effectDurationMs: 220 },
     perks: [
       perk('hadens-voltage', 'High Voltage', 'Shock damage +30%', 'common', { damage: 1.3 }),
       perk('hadens-coil', 'Fast Coil', 'Attack speed +30%', 'common', { attackIntervalMs: 0.77 }),
@@ -91,7 +91,7 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
   },
   jenny: {
     id: 'jenny', name: 'Jenny', title: 'Hex Sweeper', color: '#86ff40', atlasIndex: 4, ability: 'beam',
-    stats: { damage: 17, attackIntervalMs: 600, range: 34, projectileSpeed: 0, aoeRadius: 0, pierce: 99, beamWidth: 5.5, effectDurationMs: 420 },
+    stats: { damage: 17, attackIntervalMs: 600, range: 43, projectileSpeed: 0, aoeRadius: 0, pierce: 99, beamWidth: 5.5, effectDurationMs: 420 },
     perks: [
       perk('jenny-potency', 'Toxic Focus', 'Beam damage +30%', 'common', { damage: 1.3 }),
       perk('jenny-pulse', 'Rapid Pulse', 'Tick speed +30%', 'common', { attackIntervalMs: 0.77 }),
@@ -130,30 +130,33 @@ export const GAME_CONFIG = {
     tickMs: 50,
     spawnIntervalMs: 420,
     laneWidth: 28,
-    baseY: 18,
-    spawnY: 104,
+    baseY: 66.4,
+    spawnY: 4,
     bossSiege: { damage: 5, attackIntervalMs: 2000, firstAttackDelayMs: 1000 },
   },
   enemies: {
-    minion: { hp: 300, speed: 5.6, damage: 1, atlasIndex: 1, size: 20 },
-    elite: { hp: 1150, speed: 4, damage: 55, atlasIndex: 2, size: 23 },
-    boss: { hp: 13500, speed: 1.9, damage: 20, atlasIndex: 3, size: 34 },
+    minion: { hp: 300, speed: 4.9, damage: 1, atlasIndex: 1, size: 11 },
+    elite: { hp: 1150, speed: 3.5, damage: 55, atlasIndex: 2, size: 15 },
+    boss: { hp: 13500, speed: 1.7, damage: 20, atlasIndex: 3, size: 23 },
   } satisfies Record<EnemyType, { hp: number; speed: number; damage: number; atlasIndex: number; size: number }>,
   waves: [
-    { minion: 10, elite: 0, boss: 0, hpMultiplier: { minion: 0.65 }, speedMultiplier: { minion: 0.88 } },
-    { minion: 14, elite: 0, boss: 0, hpMultiplier: { minion: 0.78 }, speedMultiplier: { minion: 0.92 } },
-    { minion: 18, elite: 0, boss: 0, hpMultiplier: { minion: 0.92 }, speedMultiplier: { minion: 0.96 } },
-    { minion: 14, elite: 2, boss: 0, hpMultiplier: { minion: 1.05, elite: 0.6 } },
-    { minion: 22, elite: 0, boss: 0, hpMultiplier: { minion: 1.6 }, speedMultiplier: { minion: 1.15 } },
-    { minion: 26, elite: 0, boss: 0, hpMultiplier: { minion: 1.7 }, speedMultiplier: { minion: 1.25 } },
-    { minion: 16, elite: 4, boss: 0, hpMultiplier: { minion: 2.2, elite: 0.75 }, damageMultiplier: { elite: 1.82 }, speedMultiplier: { minion: 1.3, elite: 1.05 } },
-    { minion: 30, elite: 0, boss: 0, hpMultiplier: { minion: 2.8 }, speedMultiplier: { minion: 1.8 } },
-    { minion: 36, elite: 0, boss: 0, hpMultiplier: { minion: 3.1 }, speedMultiplier: { minion: 2 } },
-    { minion: 8, elite: 0, boss: 1, hpMultiplier: { minion: 3.4, boss: 0.9 }, damageMultiplier: { minion: 2 }, speedMultiplier: { minion: 1.5, boss: 1.25 }, bossFirst: true },
+    { minion: 10, elite: 0, boss: 0, hpMultiplier: { minion: 0.38 }, speedMultiplier: { minion: 0.88 } },
+    { minion: 14, elite: 0, boss: 0, hpMultiplier: { minion: 0.5 }, speedMultiplier: { minion: 0.92 } },
+    { minion: 18, elite: 0, boss: 0, hpMultiplier: { minion: 0.65 }, speedMultiplier: { minion: 0.96 } },
+    { minion: 14, elite: 2, boss: 0, hpMultiplier: { minion: 0.85, elite: 0.45 } },
+    { minion: 22, elite: 0, boss: 0, hpMultiplier: { minion: 1.15 }, speedMultiplier: { minion: 1.15 } },
+    { minion: 26, elite: 0, boss: 0, hpMultiplier: { minion: 1.3 }, speedMultiplier: { minion: 1.25 } },
+    { minion: 16, elite: 4, boss: 0, hpMultiplier: { minion: 1.55, elite: 0.65 }, damageMultiplier: { elite: 1.82 }, speedMultiplier: { minion: 1.3, elite: 1.05 } },
+    { minion: 30, elite: 0, boss: 0, hpMultiplier: { minion: 2 }, speedMultiplier: { minion: 1.8 } },
+    { minion: 36, elite: 0, boss: 0, hpMultiplier: { minion: 2.35 }, speedMultiplier: { minion: 2 } },
+    { minion: 8, elite: 0, boss: 1, hpMultiplier: { minion: 2.65, boss: 0.78 }, damageMultiplier: { minion: 2 }, speedMultiplier: { minion: 1.5, boss: 1.25 }, bossFirst: true },
   ] as WaveConfig[],
 } as const;
 
 export const PEDESTAL_POSITIONS = [
-  { x: 23.8, y: 27.2 }, { x: 72.5, y: 27.2 }, { x: 23.8, y: 42.4 },
-  { x: 72.5, y: 42.4 }, { x: 23.8, y: 58.2 }, { x: 72.5, y: 58.2 },
+  { x: 50, y: 71 },
+  { x: 34, y: 71 },
+  { x: 66, y: 71 },
+  { x: 18, y: 71 },
+  { x: 82, y: 71 },
 ] as const;

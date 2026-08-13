@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { GAME_CONFIG, HEROES, HERO_ORDER } from '../config/gameConfig';
 import { getComboMultiplier } from '../game/combo';
 import { createGrid, createSlotUpgradeChoices, findWins, initialGrid, initialXpMatrix, nudgeReel } from '../game/slot';
@@ -31,11 +31,8 @@ export interface GameController {
   beginCombat: () => void;
   damageBase: (amount: number) => void;
   completeWave: () => void;
-  openLevelUp: (heroId: HeroId) => void;
   chooseHeroPerk: (perk: HeroPerk) => void;
   chooseSlotUpgrade: (upgrade: SlotUpgrade) => void;
-  closeLevelUp: () => void;
-  moveHero: (heroId: HeroId, toSlot: number) => void;
 }
 
 const freshHeroes = (): HeroState[] => [];
@@ -176,8 +173,9 @@ export function useGame(): GameController {
   }, [awardWins, clearComboFeedback, grid, nudgesLeft, phase, spinning, xpByReel]);
 
   const beginCombat = useCallback(() => {
-    if (phase === 'preparation' && spinsLeft === 0 && !spinning) setPhase('combat');
-  }, [phase, spinning, spinsLeft]);
+    const heroReady = heroes.some((hero) => hero.xp >= GAME_CONFIG.hero.xpToLevel(hero.level));
+    if (phase === 'preparation' && spinsLeft === 0 && !spinning && !levelHero && !heroReady) setPhase('combat');
+  }, [heroes, levelHero, phase, spinning, spinsLeft]);
 
   const damageBase = useCallback((amount: number) => {
     setBaseHp((hp) => {
@@ -196,14 +194,18 @@ export function useGame(): GameController {
     }, GAME_CONFIG.feedback.waveClearMs);
   }, [nudgeUpgradesTaken, wave]);
 
-  const openLevelUp = useCallback((heroId: HeroId) => {
-    const hero = heroes.find((candidate) => candidate.id === heroId);
-    if (!hero || hero.xp < GAME_CONFIG.hero.xpToLevel(hero.level)) return;
-    const available = HEROES[heroId].perks.filter((perk) => !hero.perks.includes(perk.id));
-    const shuffled = [...available].sort(() => Math.random() - 0.5);
-    setLevelHero(hero);
-    setPerkChoices(available.length ? shuffled.slice(0, GAME_CONFIG.hero.perkChoices) : [veteranPerk(heroId)]);
-  }, [heroes]);
+  useEffect(() => {
+    if (phase !== 'preparation' || spinning || levelHero) return;
+    const readyHero = heroes.find((hero) => hero.xp >= GAME_CONFIG.hero.xpToLevel(hero.level));
+    if (!readyHero) return;
+    const timer = window.setTimeout(() => {
+      const available = HEROES[readyHero.id].perks.filter((perk) => !readyHero.perks.includes(perk.id));
+      const shuffled = [...available].sort(() => Math.random() - 0.5);
+      setLevelHero(readyHero);
+      setPerkChoices(available.length ? shuffled.slice(0, GAME_CONFIG.hero.perkChoices) : [veteranPerk(readyHero.id)]);
+    }, 420);
+    return () => window.clearTimeout(timer);
+  }, [heroes, levelHero, phase, spinning]);
 
   const chooseHeroPerk = useCallback((perk: HeroPerk) => {
     if (!levelHero) return;
@@ -232,23 +234,9 @@ export function useGame(): GameController {
     setSlotUpgradeChoices([]); setPhase('preparation');
   }, [nudgeUpgradesTaken, xpByReel]);
 
-  const moveHero = useCallback((heroId: HeroId, toSlot: number) => {
-    setHeroes((current) => {
-      const moving = current.find((hero) => hero.id === heroId);
-      if (!moving || moving.slot === toSlot) return current;
-      const displaced = current.find((hero) => hero.slot === toSlot);
-      return current.map((hero) => {
-        if (hero.id === heroId) return { ...hero, slot: toSlot };
-        if (displaced && hero.id === displaced.id) return { ...hero, slot: moving.slot };
-        return hero;
-      });
-    });
-  }, []);
-
   return {
     phase, wave, baseHp, heroes, grid, xpByReel, spinsLeft, nudgesLeft, spinning, nudgingReel, nudgingDirection, pendingGrid, winningCells, winningLines, noMatch, rewardFlights, comboFeedback,
     levelHero, perkChoices, slotUpgradeChoices, start, spin, nudge, beginCombat, damageBase,
-    completeWave, openLevelUp, chooseHeroPerk, chooseSlotUpgrade,
-    closeLevelUp: () => { setLevelHero(null); setPerkChoices([]); }, moveHero,
+    completeWave, chooseHeroPerk, chooseSlotUpgrade,
   };
 }

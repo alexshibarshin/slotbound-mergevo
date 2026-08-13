@@ -41,6 +41,7 @@ type RunResult = {
 
 const runs = Number.parseInt(process.argv[2] ?? '2000', 10);
 const seed = Number.parseInt(process.argv[3] ?? '731_993'.replace('_', ''), 10);
+const profileMode = process.argv[4] ?? 'all';
 // A strong human heuristic: picks the higher-value offered perk/upgrade most of the time,
 // while still making occasional thematic or imperfect choices.
 const SMART_DECISION_ACCURACY = 1;
@@ -218,13 +219,6 @@ function chooseUpgrade(matrix: number[][], heroes: HeroState[], strategy: Strate
   selected.additions.forEach(({ reel, hero, amount }) => { matrix[reel][hero] += amount; });
 }
 
-function arrangeHeroes(heroes: HeroState[], strategy: Strategy, rng: Rng) {
-  const slots = PEDESTAL_POSITIONS.map((_, index) => index);
-  const orderedHeroes = [...heroes].sort((a, b) => getHeroStats(a).range - getHeroStats(b).range);
-  const frontToBack = [...slots].sort((a, b) => PEDESTAL_POSITIONS[b].y - PEDESTAL_POSITIONS[a].y);
-  orderedHeroes.forEach((hero, index) => { hero.slot = frontToBack[index]; });
-}
-
 function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng) {
   const tickMs = GAME_CONFIG.combat.tickMs;
   const waveConfig = GAME_CONFIG.waves[wave - 1];
@@ -240,8 +234,8 @@ function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng)
   let time = 0;
   let nextSpawn = GAME_CONFIG.combat.spawnIntervalMs;
   let leaks = 0;
-  let closestEnemyY = 101;
-  let closestBossY = 101;
+  let closestEnemyY = GAME_CONFIG.combat.spawnY;
+  let closestBossY = GAME_CONFIG.combat.spawnY;
   let totalKillY = 0;
   let kills = 0;
   const damage = (enemy: SimEnemy, amount: number, heroId?: HeroId) => {
@@ -263,18 +257,18 @@ function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng)
       const hp = config.hp * (waveConfig.hpMultiplier?.[type] ?? 1);
       const damage = config.damage * (waveConfig.damageMultiplier?.[type] ?? 1);
       const speed = config.speed * (waveConfig.speedMultiplier?.[type] ?? 1);
-      enemies.push({ type, x: 42 + rng() * 16, y: 96 + rng() * 5, hp, speed, damage });
+      enemies.push({ type, x: 13 + rng() * 74, y: GAME_CONFIG.combat.spawnY + rng() * 3, hp, speed, damage });
       nextSpawn += GAME_CONFIG.combat.spawnIntervalMs;
     }
     enemies.forEach((enemy) => {
-      if (!enemy.isSieging) enemy.y -= enemy.speed * tickMs / 1000;
+      if (!enemy.isSieging) enemy.y += enemy.speed * tickMs / 1000;
     });
     enemies.forEach((enemy) => {
-      closestEnemyY = Math.min(closestEnemyY, enemy.y);
-      if (enemy.type === 'boss') closestBossY = Math.min(closestBossY, enemy.y);
+      closestEnemyY = Math.max(closestEnemyY, enemy.y);
+      if (enemy.type === 'boss') closestBossY = Math.max(closestBossY, enemy.y);
     });
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
-      if (enemies[index].y <= GAME_CONFIG.combat.baseY) {
+      if (enemies[index].y >= GAME_CONFIG.combat.baseY) {
         const enemy = enemies[index];
         if (enemy.type === 'boss') {
           enemy.y = GAME_CONFIG.combat.baseY;
@@ -298,7 +292,7 @@ function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng)
       if ((cooldowns[hero.id] ?? 0) > time) continue;
       const stats = getHeroStats(hero);
       const from = PEDESTAL_POSITIONS[hero.slot];
-      const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => a.y - b.y);
+      const targets = live().filter((enemy) => combatDistance(from, enemy) <= stats.range).sort((a, b) => b.y - a.y);
       const target = targets[0];
       if (!target) continue;
       cooldowns[hero.id] = time + stats.attackIntervalMs;
@@ -306,25 +300,17 @@ function fightWave(wave: number, heroes: HeroState[], startHp: number, rng: Rng)
       const ability = HEROES[hero.id].ability;
       getAbilityTargets(ability, stats, from, target, targets, live()).forEach((enemy) => damage(enemy, stats.damage, hero.id));
     }
-    if ((cooldowns.king ?? 0) <= time) {
-      const from = { x: 50, y: 13 };
-      const target = live().filter((enemy) => combatDistance(from, enemy) <= GAME_CONFIG.base.range).sort((a, b) => a.y - b.y)[0];
-      if (target) {
-        damage(target, GAME_CONFIG.base.damage);
-        cooldowns.king = time + GAME_CONFIG.base.attackIntervalMs;
-      }
-    }
     for (let index = enemies.length - 1; index >= 0; index -= 1) if (enemies[index].hp <= 0) enemies.splice(index, 1);
   }
-  const progress = (y: number) => Math.max(0, Math.min(1, (100 - y) / (100 - GAME_CONFIG.combat.baseY)));
+  const progress = (y: number) => Math.max(0, Math.min(1, (y - GAME_CONFIG.combat.spawnY) / (GAME_CONFIG.combat.baseY - GAME_CONFIG.combat.spawnY)));
   return {
     hp: Math.max(0, hp),
     hpLost: Math.max(0, startHp - Math.max(0, hp)),
     leaks,
     deepestProgress: progress(closestEnemyY),
-    averageKillY: kills > 0 ? totalKillY / kills : 100,
+    averageKillY: kills > 0 ? totalKillY / kills : GAME_CONFIG.combat.spawnY,
     durationMs: time,
-    bossDeepestProgress: closestBossY < 101 ? progress(closestBossY) : null,
+    bossDeepestProgress: closestBossY > GAME_CONFIG.combat.spawnY ? progress(closestBossY) : null,
     damageByHero,
     shotsByHero,
   };
@@ -363,7 +349,6 @@ function simulateRun(strategy: Strategy, rng: Rng, carryIds: HeroId[] = []): Run
         usedNudge = true;
       }
     }
-    arrangeHeroes(heroes, strategy, rng);
     const combat = fightWave(wave, heroes, hp, rng);
     hp = combat.hp;
     waves.push({
@@ -449,10 +434,12 @@ const carryProfiles: HeroId[][] = [
   ...HERO_ORDER.map((id) => [id]),
   ...HERO_ORDER.flatMap((first, firstIndex) => HERO_ORDER.slice(firstIndex + 1).map((second) => [first, second])),
 ];
-const summaries = [
-  summarize('random', seed),
-  ...carryProfiles.map((carryIds, index) => summarize('smart', seed + (index + 1) * 9_999_991, carryIds)),
-];
+const summaries = profileMode === 'quick'
+  ? [summarize('random', seed), summarize('smart', seed + 9_999_991)]
+  : [
+      summarize('random', seed),
+      ...carryProfiles.map((carryIds, index) => summarize('smart', seed + (index + 1) * 9_999_991, carryIds)),
+    ];
 const smartSummaries = summaries.slice(1);
 const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
 

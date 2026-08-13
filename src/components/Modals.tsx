@@ -9,8 +9,8 @@ export function LevelUpModal({ game }: { game: GameController }) {
   if (!game.levelHero) return null;
   const hero = game.levelHero;
   return (
-    <div className="modal-backdrop" onClick={game.closeLevelUp}>
-      <section className="level-modal" onClick={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop">
+      <section className="level-modal">
         <div className="ribbon ribbon-green"><AtlasSprite atlas="ui" index={1} /><strong>{blessingTitle(HEROES[hero.id].name)}</strong></div>
         <p>CHOOSE AN ABILITY</p>
         <div className="perk-row">
